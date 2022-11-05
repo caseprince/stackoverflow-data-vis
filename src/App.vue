@@ -64,7 +64,7 @@
   }
 }
 
-.app__router-view {
+.home-instructions, .exercise__instructions {
   max-width: 750px;
   margin-left: auto;
   margin-right: auto;

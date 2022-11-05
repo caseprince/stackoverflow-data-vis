@@ -1,21 +1,53 @@
 <template>
   <div class="so-example">
-    <h3 class="so-example__title">
-      <FontAwesomeIcon class="so-example__logo" :icon="['fab', 'stack-overflow']" />
-      Stack Overflow (Example)
+    <h3 class="so-title">
+      <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" />
+      Stack Overflow Questions with 'Prefect' tag
     </h3>
-    <div class="so-example__questions">
+    <h1 v-if="state.loading">
+      loading...
+    </h1>
+    <table class="questions-table">
+      <tr>
+        <th>User</th>
+        <th>Rep</th>
+        <th>Title</th>
+        <th>Views</th>
+        <th>Answers</th>
+        <th>Score</th>
+        <th>Created</th>
+        <th>Active</th>
+      </tr>
       <template v-for="question in questions" :key="question.question_id">
-        <ul>
-          <li>{{ question }}</li>
-        </ul>
+        <tr @click="onClickTableRow(question.link)">
+          <td>
+            <div class="owner">
+              <img :src="question.owner.profile_image">
+              <!-- TODO: onerror show placeholder image?  -->
+              <div v-html="question.owner.display_name" />
+            </div>
+          </td>
+          <td>{{ question.owner.reputation }}</td>
+          <td class="title">
+            <div v-html="question.title" />
+          </td>
+          <td>{{ question.view_count }}</td>
+          <td>
+            {{ question.answer_count }}
+            <span v-if="question.accepted_answer_id">✅</span>
+          </td>
+          <td>{{ question.score }}</td>
+          <td>{{ moment(question.creation_date * 1000).fromNow() }}</td>
+          <td>{{ moment(question.last_activity_date * 1000).fromNow() }}</td>
+        </tr>
       </template>
-    </div>
+    </table>
   </div>
 </template>
 
 <script lang="ts" setup>
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+  import moment from 'moment'
   import { onMounted, reactive } from 'vue'
 
   type Question = {
@@ -47,82 +79,78 @@
   }
 
   const questions: Question[] = reactive([])
+  // TODO: Filters, sort, pagination (lazyload?)
   const url = 'https://api.stackexchange.com/2.3/questions?pagesize=60&order=desc&sort=activity&site=stackoverflow&tagged=prefect'
+  let state = reactive({ loading: true })
 
   onMounted(async () => {
     const response = await fetch(url)
     const data = await response.json()
+    // NB: https://api.stackexchange.com/docs/throttle
+    // TODO: localstorage/memoization?
+    console.log(`API calls remaining: ${data.quota_remaining}`)
 
+    state.loading = false
     questions.push(...data.items)
   })
+
+  function onClickTableRow(link: string): void {
+    // This would useful for future analytics, but something involving <a>s would likely be better UX, since
+    // it would support middle click to open a new tab if desired.
+    // TODO: Modal iframe?
+    const win: Window = window
+    win.location = link
+  }
 </script>
 
 <style lang="scss">
+.questions-table {
+  border-collapse: collapse;
+  width: 100%;
+  tr {
+    cursor: pointer;
+    &:hover {
+      background-color: #e7e9f8 !important;
+    }
+    &:nth-child(even) {
+      background-color: #f4f4f4;
+    }
+  }
+  th {
+    text-align: left;
+  }
+  th, td {
+    padding: 6px 5px;
+  }
+  td {
+    min-height: 20px;
+    white-space: nowrap;
+    &.title {
+      white-space: normal;
+    }
+  }
+}
+.owner {
+  display: flex;
+  align-items: center;
+  img {
+    width: 20px;
+    height: 20px;
+    object-fit: cover;
+    margin-right: 10px;
+  }
+}
+
 .so-example {
   padding: 24px 12px;
 }
 
-.so-example__logo {
+.so-title {
+  margin: 10px 0 20px 8px;
+}
+
+.so-logo {
   color: #e68e47;
-}
-
-.so-example__title,
-.so-example__question-title {
-  margin-top: 0;
-  text-align: center;
-}
-
-.so-example__questions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: start;
-  gap: 24px;
-}
-
-.so-example__question {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  max-width: 300px;
-  background-color: #f3f3f3;
-  padding: 8px;
-}
-
-.so-example__question-title {
-  text-decoration: none;
-  color: #323232;
-}
-
-.so-example__question-owner {
-  display: grid;
-  column-gap: 4px;
-  align-items: center;
-  grid-template-areas:
-    'profile name answered'
-    'profile reputation answered';
-  grid-template-columns: 40px 1fr 1fr;
-  font-size: 13px;
-}
-
-.so-example__owner-name {
-  grid-area: name;
-  text-decoration: none;
-  color: #157fd0;
-}
-
-.so-example__owner-image {
-  grid-area: profile;
-  width: 100%;
-}
-
-.so-example__owner-reputation {
-  grid-area: reputation;
-  font-size: 12px;
-}
-
-.so-example__question-answered {
-  color: #5a9e70;
 }
 
 .so-example__tags {
