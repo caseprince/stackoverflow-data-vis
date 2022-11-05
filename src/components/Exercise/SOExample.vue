@@ -84,11 +84,24 @@
   let state = reactive({ loading: true })
 
   onMounted(async () => {
-    const response = await fetch(url)
-    const data = await response.json()
-    // NB: https://api.stackexchange.com/docs/throttle
-    // TODO: localstorage/memoization?
-    console.log(`API calls remaining: ${data.quota_remaining}`)
+    let data
+    const cachedURL = sessionStorage.getItem(url)
+    if (cachedURL) {
+      const cache = JSON.parse(cachedURL)
+      const cacheAgeInSeconds = Math.floor((new Date().getTime() - cache.time) / 1000)
+      // Aggressive caching for local development
+      if (cacheAgeInSeconds < 60 * 60) {
+        console.log(`Using cached data! (${cacheAgeInSeconds} seconds old)`)
+        data = cache.data
+      }
+    }
+    if (!data) {
+      const response = await fetch(url)
+      data = await response.json()
+      // NB: https://api.stackexchange.com/docs/throttle
+      console.log(`API calls remaining: ${data.quota_remaining}`)
+      sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
+    }
 
     state.loading = false
     questions.push(...data.items)
