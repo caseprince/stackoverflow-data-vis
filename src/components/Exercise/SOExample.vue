@@ -12,9 +12,6 @@
         </template>
       </div>
     </div>
-    <h1 v-if="state.loading">
-      loading...
-    </h1>
     <table class="questions-table">
       <tr>
         <th>User</th>
@@ -22,8 +19,8 @@
         <th>Title</th>
         <th>Views</th>
         <th>Answers</th>
-        <th>Score</th>
-        <th>Created</th>
+        <th>Votes</th>
+        <th>Asked</th>
         <th>Active</th>
       </tr>
       <template v-for="question in questions" :key="question.question_id">
@@ -50,13 +47,19 @@
         </tr>
       </template>
     </table>
+    <div v-if="state.loading" class="spinner-holder">
+      <FontAwesomeIcon :icon="['fas', 'spinner']" spin size="2x" color="#cccccc" />
+    </div>
+    <div v-if="!state.loading && !state.hasMore" class="not-has-more">
+      Showing {{ questions.length }} of {{ questions.length }} Questions
+    </div>
   </div>
 </template>
 
 <script lang="ts" setup>
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
   import moment from 'moment'
-  import { onMounted, reactive } from 'vue'
+  import { onBeforeUnmount, onMounted, reactive } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
 
@@ -96,24 +99,41 @@
 
   const questions: Question[] = reactive([])
   const tags: Tag[] = reactive([])
-  let state = reactive({ loading: true })
+  let state = reactive({ loading: true, hasMore: false })
+  let page = 1
+  const PAGESIZE = 50
 
   onMounted(async () => {
-    await loadQuestions(router.currentRoute.value.query)
+    await loadQuestions()
+    window.addEventListener('scroll', onScroll)
+  })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('scroll', onScroll)
   })
 
   onBeforeRouteUpdate(async to => {
     await loadQuestions(to.query)
   })
 
-  const loadQuestions = async (query: LocationQuery) => {
-    // TODO: Other filters, sort, pagination (lazyload?)
+  const onScroll = (): void => {
+    if (window.innerHeight + Math.ceil(window.pageYOffset) >= document.body.offsetHeight) {
+      if (state.hasMore && !state.loading) {
+        page++
+        state.loading = true
+        loadQuestions()
+      }
+    }
+  }
 
+  const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
+    // TODO: Other filters, sort
     const activeTags = query.tags ? (query.tags as string).split(';') : []
     activeTags.unshift('prefect')
 
     const apiParams = {
-      pagesize: String(60),
+      page: String(page),
+      pagesize: String(PAGESIZE),
       order: 'desc',
       sort: 'activity',
       site: 'stackoverflow',
@@ -141,13 +161,14 @@
       sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
     }
 
+    state.hasMore = data.has_more
     state.loading = false
-    questions.splice(0, questions.length) // TODO - skip when loading pages > 1
     questions.push(...data.items)
 
     // Cache all unique questions across filters & pagination to aggregate tags, sortable by prominence.
     // NB: When filtering by tags prominence could become skewed towards active tags? Feature or bug?
     const QUESTIONS = 'questions'
+    // sessionStorage.removeItem(QUESTIONS)
     const cachedQuestionsById: Question[] = JSON.parse(sessionStorage.getItem(QUESTIONS) || '{}')
     data.items.forEach((item: Question) => {
       if (!cachedQuestionsById[item.question_id]) {
@@ -155,6 +176,8 @@
       }
     })
     sessionStorage.setItem(QUESTIONS, JSON.stringify(cachedQuestionsById))
+
+    // Extract unique tags from cached questions
     for (const questionId in cachedQuestionsById) {
       const question = cachedQuestionsById[questionId]
       question.tags.forEach(questionTag => {
@@ -167,14 +190,19 @@
       })
     }
     tags.sort((a, b) => {
-      if (a.questionIds.length === b.questionIds.length) {
-        var textA = a.name.toUpperCase()
-        var textB = b.name.toUpperCase()
-        return textA < textB ? -1 : textA > textB ? 1 : 0
+      // Primary sort on how many questions have tag (tag prominence)
+      if (a.questionIds.length !== b.questionIds.length) {
+        return b.questionIds.length - a.questionIds.length
       }
-      return b.questionIds.length - a.questionIds.length
+      // Secondary sort alphabetically
+      if (a.name < b.name) {
+        return -1
+      } else if (a.name > b.name) {
+        return 1
+      }
+      return 0
     })
-    // Backfill 'active' prop based on query param for UI
+    // Backfill 'active' prop based on query param for tags filter UI
     tags.forEach(tag => tag.active = activeTags.includes(tag.name))
   }
 
@@ -195,7 +223,14 @@
       // Only add tags param back if tag filters present
       query.tags = tags.join(';')
     }
+    reset()
     router.push({ path: currentRoute.value.path, query })
+  }
+
+  const reset = (): void => {
+    page = 1
+    state.loading = true
+    questions.splice(0, questions.length)
   }
 
   function onClickTableRow(link: string): void {
@@ -220,6 +255,11 @@
   color: #e68e47;
 }
 
+.spinner-holder {
+  text-align: center;
+  padding: 30px;
+}
+
 .filters {
   margin: 0 0 12px;
   h4 {
@@ -234,6 +274,10 @@
   .tag {
     font-size: 12px;
     cursor: pointer;
+    &:hover {
+      color: #106098;
+      background-color: #c5dbec;
+    }
   }
 }
 .tag {
@@ -283,5 +327,11 @@
     object-fit: cover;
     margin-right: 10px;
   }
+}
+.not-has-more {
+  text-align: center;
+  margin: 20px;
+  font-style: italic;
+  color: #898989;
 }
 </style>
