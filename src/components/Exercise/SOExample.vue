@@ -2,10 +2,20 @@
   <div class="so-example">
     <h3 class="so-title">
       <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" />
-      Stack Overflow Questions with <span class="tag">prefect</span> tag
+      Stack Overflow Questions with
+      <span class="primary-tag-dropdown">
+        <span class="tag" @click="togglePrimaryTagDropdown">{{ getActivePrimaryTab() }}<i>🞃</i></span>
+        <menu v-if="state.primaryTagDropdownOpen">
+          <template v-for="primaryTag in getPrimaryTagsMenu()" :key="`${primaryTag}_primary`">
+            <li @click="changePrimaryTag(primaryTag)">{{ primaryTag }}</li>
+          </template>
+        </menu>
+      </span> tag
     </h3>
     <div class="filters">
-      <h4>Filter by additional Tags:</h4>
+      <h4>Filter by {{ tags.length }} additional Tags:</h4>
+      <!-- TODO: Search for new tags using https://api.stackexchange.com/docs/tags -->
+      <!-- TODO: Explanatory popup -->
       <div class="tags">
         <template v-for="tag in tags" :key="tag.name">
           <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
@@ -99,11 +109,23 @@
 
   const questions: Question[] = reactive([])
   const tags: Tag[] = reactive([])
-  let state = reactive({ loading: true, hasMore: false })
+  let state = reactive({ loading: true, hasMore: false, primaryTagDropdownOpen: false })
+
+  const PREFECT = 'prefect'
+  const primaryTags: string[] = [PREFECT, 'javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
+  function getActivePrimaryTab(): string {
+    return (router.currentRoute.value.query.primary_tag || PREFECT) as string
+  }
+  function getPrimaryTagsMenu(): string[] {
+    return primaryTags.filter(tag => tag !== getActivePrimaryTab())
+  }
+
   let page = 1
   const PAGESIZE = 50
+  const QUESTIONS = 'questions'
 
   onMounted(async () => {
+    sessionStorage.removeItem(QUESTIONS)
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
   })
@@ -129,7 +151,7 @@
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
     // TODO: Other filters, sort
     const activeTags = query.tags ? (query.tags as string).split(';') : []
-    activeTags.unshift('prefect')
+    activeTags.unshift(query.primary_tag as string || PREFECT)
 
     const apiParams = {
       page: String(page),
@@ -167,8 +189,6 @@
 
     // Cache all unique questions across filters & pagination to aggregate tags, sortable by prominence.
     // NB: When filtering by tags prominence could become skewed towards active tags? Feature or bug?
-    const QUESTIONS = 'questions'
-    // sessionStorage.removeItem(QUESTIONS)
     const cachedQuestionsById: Question[] = JSON.parse(sessionStorage.getItem(QUESTIONS) || '{}')
     data.items.forEach((item: Question) => {
       if (!cachedQuestionsById[item.question_id]) {
@@ -184,7 +204,8 @@
         const existingTag = tags.find(tag => tag.name === questionTag)
         if (existingTag) {
           existingTag.questionIds.push(questionId)
-        } else if (questionTag !== 'prefect') {
+        // Exclude query.primaryTag or implied 'prefect' primaryTag
+        } else if (questionTag !== (query.primary_tag ? query.primary_tag : PREFECT)) {
           tags.push({ name: questionTag, questionIds: [questionId] })
         }
       })
@@ -204,6 +225,24 @@
     })
     // Backfill 'active' prop based on query param for tags filter UI
     tags.forEach(tag => tag.active = activeTags.includes(tag.name))
+  }
+
+  function togglePrimaryTagDropdown(event: Event): void {
+    event.stopPropagation()
+    state.primaryTagDropdownOpen = !state.primaryTagDropdownOpen
+    if (state.primaryTagDropdownOpen) {
+      window.addEventListener('click', togglePrimaryTagDropdown)
+    } else {
+      window.removeEventListener('click', togglePrimaryTagDropdown)
+    }
+  }
+
+  function changePrimaryTag(primaryTag: string): void {
+    sessionStorage.removeItem(QUESTIONS)
+    tags.splice(0, tags.length)
+    reset()
+    const query = primaryTag === PREFECT ? {} : { primary_tag: primaryTag }
+    router.push({ path: router.currentRoute.value.path, query })
   }
 
   // Adds or removes a tag from currentRoute's 'tags' query params
@@ -260,35 +299,69 @@
   padding: 30px;
 }
 
-.filters {
-  margin: 0 0 12px;
-  h4 {
-    margin: 0 0 8px 2px;
+.primary-tag-dropdown {
+  display: inline-block;
+  position: relative;
+  i {
+    font-size: 0.7em;
+    position: relative;
+    top: -3px;
+    right: -3px;
   }
-}
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 2px;
-  .tag {
-    font-size: 12px;
+  .tag, li {
+    padding: 4px 10px;
+  }
+  menu {
+    position: absolute;
+    top: 25px;
+    left: 0;
+    margin: 0;
+    padding: 0;
+    list-style-type: none;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  li {
     cursor: pointer;
+    color: #39739d;
+    background-color: #e1ecf4;
     &:hover {
       color: #106098;
       background-color: #c5dbec;
     }
   }
 }
+
 .tag {
-  color: #39739d;
   white-space: nowrap;
   border-radius: 4px;
   padding: 4px 8px;
+  cursor: pointer;
+  color: #39739d;
   background-color: #e1ecf4;
-  &.active {
-    color: white;
-    background-color: #3e7c9d;
+  &:hover {
+    color: #106098;
+    background-color: #c5dbec;
+  }
+}
+
+.filters {
+  margin: 0 0 12px;
+  h4 {
+    margin: 0 0 8px 2px;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 2px;
+    .tag {
+      font-size: 12px;
+      &.active {
+        color: white;
+        background-color: #3e7c9d;
+      }
+    }
   }
 }
 
