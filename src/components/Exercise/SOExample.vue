@@ -13,13 +13,22 @@
       </span> tag
     </h3>
     <div class="filters">
-      <h4>Filter by {{ tags.length }} additional Tags:</h4>
+      <h4>Filter by {{ tags.length }} additional tags:</h4>
       <!-- TODO: Search for new tags using https://api.stackexchange.com/docs/tags -->
       <!-- TODO: Explanatory popup -->
-      <div class="tags">
-        <template v-for="tag in tags" :key="tag.name">
-          <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
-        </template>
+      <div class="filterTagsWrapper" :class="state.tagsCollapsed && 'collapsed'">
+        <div ref="filterTags" class="tags">
+          <template v-for="tag in tags" :key="tag.name">
+            <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
+          </template>
+        </div>
+      </div>
+      <hr>
+      <div class="more-or-less">
+        <span v-if="filterTags && filterTags.clientHeight > COLLAPSED_TAGS_HEIGHT" @click="toggleTagsCollapsed">
+          <span v-if="state.tagsCollapsed">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
+          <span v-else>less <FontAwesomeIcon :icon="['fas', 'angle-up']" /></span>
+        </span>
       </div>
     </div>
     <table class="questions-table">
@@ -51,8 +60,12 @@
             <span v-if="question.accepted_answer_id">✅</span>
           </td>
           <td>{{ question.score }}</td>
-          <td>{{ moment(question.creation_date * 1000).fromNow() }}</td>
-          <td>{{ moment(question.last_activity_date * 1000).fromNow() }}</td>
+          <td class="time">
+            {{ moment(question.creation_date * 1000).fromNow() }}
+          </td>
+          <td class="time">
+            {{ moment(question.last_activity_date * 1000).fromNow() }}
+          </td>
         </tr>
       </template>
     </table>
@@ -68,7 +81,7 @@
 <script lang="ts" setup>
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
   import moment from 'moment'
-  import { onBeforeUnmount, onMounted, reactive } from 'vue'
+  import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
 
@@ -108,7 +121,12 @@
 
   const questions: Question[] = reactive([])
   const tags: Tag[] = reactive([])
-  let state = reactive({ loading: true, hasMore: false, primaryTagDropdownOpen: false })
+  let state = reactive({
+    loading: true,
+    hasMore: false,
+    primaryTagDropdownOpen: false,
+    tagsCollapsed: true,
+  })
 
   const PREFECT = 'prefect'
   const primaryTags: string[] = [PREFECT, 'javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
@@ -118,6 +136,9 @@
   function getPrimaryTagsMenu(): string[] {
     return primaryTags.filter(tag => tag !== getActivePrimaryTab())
   }
+
+  const COLLAPSED_TAGS_HEIGHT = 85
+  const filterTags = ref<HTMLElement | undefined>()
 
   let page = 1
   const PAGESIZE = 50
@@ -226,6 +247,12 @@
     tags.forEach(tag => tag.active = activeTags.includes(tag.name))
   }
 
+  const reset = (): void => {
+    page = 1
+    state.loading = true
+    questions.splice(0, questions.length)
+  }
+
   function togglePrimaryTagDropdown(event: Event): void {
     event.stopPropagation()
     state.primaryTagDropdownOpen = !state.primaryTagDropdownOpen
@@ -264,11 +291,8 @@
     reset()
     router.push({ path: currentRoute.value.path, query })
   }
-
-  const reset = (): void => {
-    page = 1
-    state.loading = true
-    questions.splice(0, questions.length)
+  function toggleTagsCollapsed(): void {
+    state.tagsCollapsed = !state.tagsCollapsed
   }
 
   function onClickTableRow(link: string): void {
@@ -312,6 +336,7 @@
   }
   menu {
     position: absolute;
+    z-index: 10;
     top: 25px;
     left: 0;
     margin: 0;
@@ -347,18 +372,40 @@
 .filters {
   margin: 0 0 12px;
   h4 {
-    margin: 0 0 8px 2px;
+    display: inline-block;
+    margin: 0 0 12px 2px;
+  }
+  .filterTagsWrapper.collapsed {
+    max-height: 80px;
+    overflow: hidden;
   }
   .tags {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin: 2px;
+    padding: 2px 2px 8px;
     .tag {
       font-size: 12px;
       &.active {
         color: white;
         background-color: #3e7c9d;
+      }
+    }
+  }
+  hr {
+    margin: 0;
+    border-top: 1px solid #c4c4c4;
+  }
+  .more-or-less {
+    text-align: center;
+    margin: 3px 0 -5px 0;
+    span {
+      cursor: pointer;
+      font-size: 13px;
+      color: #cccccc;
+      padding: 8px 10px;
+      :hover {
+        color: #8f8f8f
       }
     }
   }
@@ -368,9 +415,9 @@
   border-collapse: collapse;
   width: 100%;
   tr {
-    cursor: pointer;
-    &:hover {
-      background-color: #e7e9f8 !important;
+    &:not(:first-child):hover {
+      cursor: pointer;
+      background-color: #dae9ff !important;
     }
     &:nth-child(even) {
       background-color: #f4f4f4;
@@ -387,6 +434,9 @@
     white-space: nowrap;
     &.title {
       white-space: normal;
+    }
+    &.time {
+      font-size: 13px;
     }
   }
 }
