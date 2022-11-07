@@ -37,8 +37,7 @@
         <tr @click="onClickTableRow(question.link)">
           <td>
             <div class="owner">
-              <img :src="question.owner.profile_image">
-              <!-- TODO: onerror show placeholder image?  -->
+              <img :src="question.owner.profile_image" referrerpolicy="no-referrer">
               <div v-html="question.owner.display_name" />
             </div>
           </td>
