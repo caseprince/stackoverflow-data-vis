@@ -1,7 +1,7 @@
 <template>
   <div class="so-example">
     <h3 class="so-title">
-      <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" />
+      <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" color="#e68e47" />
       Stack Overflow Questions with
       <span class="primary-tag-dropdown">
         <span class="tag" @click="togglePrimaryTagDropdown">{{ getActivePrimaryTab() }}<i>🞃</i></span>
@@ -14,8 +14,18 @@
     </h3>
     <div class="filters">
       <h4>Filter by {{ tags.length }} additional tags:</h4>
-      <!-- TODO: Search for new tags using https://api.stackexchange.com/docs/tags -->
-      <!-- TODO: Explanatory popup -->
+      <div class="search-tags">
+        <input ref="searchTagsInput" placeholder="Search for tags" @input="changesearchTagsInput" @keydown="searchTagsInputKeyDown">
+        <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" />
+        <menu v-if="searchTags.results.length">
+          <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
+            <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
+              {{ tag }}
+            </li>
+          </template>
+        </menu>
+      </div>
+      <!-- TODO: Explanatory tooltip -->
       <div class="filterTagsWrapper" :class="state.tagsCollapsed && 'collapsed'">
         <div ref="filterTags" class="tags">
           <template v-for="tag in tags" :key="tag.name">
@@ -81,7 +91,7 @@
 <script lang="ts" setup>
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
   import moment from 'moment'
-  import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+  import { InputHTMLAttributes, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
 
@@ -169,7 +179,7 @@
   }
 
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
-    // TODO: Other filters, sort
+    // TODO: Date filters, sort
     const activeTags = query.tags ? (query.tags as string).split(';') : []
     activeTags.unshift(query.primary_tag as string || PREFECT)
 
@@ -183,31 +193,12 @@
     }
     const URLParams = new URLSearchParams(apiParams).toString()
     const url = `https://api.stackexchange.com/2.3/questions?${URLParams}`
-
-    let data
-    const cachedURL = sessionStorage.getItem(url)
-    if (cachedURL) {
-      const cache = JSON.parse(cachedURL)
-      const cacheAgeInSeconds = Math.floor((new Date().getTime() - cache.time) / 1000)
-      // Aggressive caching for local development
-      if (cacheAgeInSeconds < 60 * 60 * 12) {
-        console.log(`Using cached data! (${moment.duration(cacheAgeInSeconds, 'seconds').humanize()} old) ${url}`)
-        data = cache.data
-      }
-    }
-    if (!data) {
-      const response = await fetch(url)
-      data = await response.json()
-      // NB: https://api.stackexchange.com/docs/throttle
-      console.log(`API calls remaining: ${data.quota_remaining}`)
-      sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
-    }
-
-    state.hasMore = data.has_more
+    const data = await fetchDataWithCache(url)
     state.loading = false
+    state.hasMore = data.has_more
     questions.push(...data.items)
 
-    // Cache all unique questions across filters & pagination to aggregate tags, sortable by prominence.
+    // Cache all unique questions across tag filters & pagination to aggregate tags, sortable by prominence.
     // NB: When filtering by tags prominence could become skewed towards active tags? Feature or bug?
     const cachedQuestionsById: Question[] = JSON.parse(sessionStorage.getItem(QUESTIONS) || '{}')
     data.items.forEach((item: Question) => {
@@ -245,9 +236,40 @@
     })
     // Backfill 'active' prop based on query param for tags filter UI
     tags.forEach(tag => tag.active = activeTags.includes(tag.name))
+
+    // It's possible by searching for and adding non-overlapping tags that we'll have 0 question results.
+    // We can add those dead-end tags to the UI here so they can be cleared.
+    const [qTags] = getTagsAndTaglessQuery(query)
+    qTags.forEach(qTag => {
+      if (!tags.find(tag => tag.name === qTag)) {
+        tags.unshift({ name: qTag, questionIds: [], active: true })
+      }
+    })
   }
 
-  const reset = (): void => {
+  const fetchDataWithCache = async (url: string): Promise<any> => {
+    let data
+    const cachedURL = sessionStorage.getItem(url)
+    if (cachedURL) {
+      const cache = JSON.parse(cachedURL)
+      const cacheAgeInSeconds = Math.floor((new Date().getTime() - cache.time) / 1000)
+      // Aggressive caching for local development
+      if (cacheAgeInSeconds < 60 * 60 * 12) {
+        console.log(`Using cached data! (${moment.duration(cacheAgeInSeconds, 'seconds').humanize()} old) ${url}`)
+        data = cache.data
+      }
+    }
+    if (!data) {
+      const response = await fetch(url)
+      data = await response.json()
+      // NB: https://api.stackexchange.com/docs/throttle
+      console.log(`API calls remaining: ${data.quota_remaining}`)
+      sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
+    }
+    return data
+  }
+
+  const resetQuestions = (): void => {
     page = 1
     state.loading = true
     questions.splice(0, questions.length)
@@ -266,34 +288,81 @@
   function changePrimaryTag(primaryTag: string): void {
     sessionStorage.removeItem(QUESTIONS)
     tags.splice(0, tags.length)
-    reset()
+    resetQuestions()
     const query = primaryTag === PREFECT ? {} : { primary_tag: primaryTag }
     router.push({ path: router.currentRoute.value.path, query })
   }
 
+
+  // TAG FILTERS ~~~~~~~~~~~~~~~~~~~~~~~~
+
+  // Strips (and parses) tags param out of current query and returns destructured ...rest
+  const getTagsAndTaglessQuery = (query: LocationQuery = router.currentRoute.value.query): [string[], LocationQuery] => {
+    const { tags : tagsString, ...newQuery } = query
+    return [tagsString ? (tagsString as string).split(';') : [], newQuery]
+  }
+
+  const searchTags: { results: string[], keyIndex: number } = reactive({ results: [], keyIndex: -1 })
+  const searchTagsInput = ref<InputHTMLAttributes | undefined>()
+  async function changesearchTagsInput(event: Event): Promise<void> {
+    // TODO: Debounce?
+    const searchTerm = (event.target as HTMLInputElement).value
+    if (!searchTerm) {
+      searchTags.results.splice(0, questions.length)
+      return
+    }
+    window.addEventListener('click', clearSearchTags)
+    const url = `https://api.stackexchange.com/2.3/tags?pagesize=10&order=desc&sort=popular&site=stackoverflow&inname=${searchTerm}`
+    const data = await fetchDataWithCache(url)
+    searchTags.results = data.items.map((tag: any) => tag.name)
+  }
+  function searchTagsInputKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'ArrowDown') {
+      searchTags.keyIndex = (searchTags.keyIndex + 1) % searchTags.results.length
+    } else if (event.key === 'ArrowUp') {
+      searchTags.keyIndex = searchTags.keyIndex > 0 ? searchTags.keyIndex - 1 : searchTags.results.length - 1
+    } else if (event.key === 'Enter' && searchTags.keyIndex >= 0 && searchTags.results.length) {
+      addSearchedTag(searchTags.results[searchTags.keyIndex])
+      clearSearchTags()
+    }
+  }
+  function addSearchedTag(tag: string): void {
+    const [tags, query] = getTagsAndTaglessQuery()
+    tags.push(tag)
+    query.tags = tags.join(';')
+    resetQuestions()
+    router.push({ path: router.currentRoute.value.path, query })
+  }
+  const clearSearchTags = (): void => {
+    if (searchTagsInput.value) {
+      searchTagsInput.value.value = ''
+    }
+    searchTags.results.splice(0, searchTags.results.length)
+    searchTags.keyIndex = -1
+    window.removeEventListener('click', clearSearchTags)
+  }
+
   // Adds or removes a tag from currentRoute's 'tags' query params
   function toggleTag(tag: string): void {
-    const { currentRoute } = router
-    const currentQuery = currentRoute.value.query
-    const tagsString = currentQuery.tags as string || ''
-    let tags = tagsString ? tagsString.split(';') : []
+    const [tags, query] = getTagsAndTaglessQuery()
     if (tags.includes(tag)) {
       tags.splice(tags.indexOf(tag), 1)
     } else {
       tags.push(tag)
     }
-    // Strip tags param out of current query and destructure ...rest
-    const { tags : _tags, ...query } = currentQuery
     if (tags.length) {
       // Only add tags param back if tag filters present
       query.tags = tags.join(';')
     }
-    reset()
-    router.push({ path: currentRoute.value.path, query })
+    resetQuestions()
+    router.push({ path: router.currentRoute.value.path, query })
   }
   function toggleTagsCollapsed(): void {
     state.tagsCollapsed = !state.tagsCollapsed
   }
+
+  // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
+
 
   function onClickTableRow(link: string): void {
     // This would useful for future analytics, but something involving <a>s would likely be better UX, since
@@ -313,13 +382,23 @@
   margin: 0px 0 20px 5px;
 }
 
-.so-logo {
-  color: #e68e47;
-}
-
 .spinner-holder {
   text-align: center;
   padding: 30px;
+}
+
+// General tag styling is shared between header, dropdown menu items, and tag filter list
+.tag {
+  white-space: nowrap;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #39739d;
+  background-color: #e1ecf4;
+  &:hover {
+    color: #106098;
+    background-color: #c5dbec;
+  }
 }
 
 .primary-tag-dropdown {
@@ -344,28 +423,16 @@
     list-style-type: none;
     border-radius: 4px;
     overflow: hidden;
-  }
-  li {
-    cursor: pointer;
-    color: #39739d;
-    background-color: #e1ecf4;
-    &:hover {
-      color: #106098;
-      background-color: #c5dbec;
+    box-shadow: 0px 1px 4px rgb(0 0 0 / 30%);
+    li {
+      cursor: pointer;
+      color: #39739d;
+      background-color: #e1ecf4;
+      &:hover {
+        color: #106098;
+        background-color: #c5dbec;
+      }
     }
-  }
-}
-
-.tag {
-  white-space: nowrap;
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  color: #39739d;
-  background-color: #e1ecf4;
-  &:hover {
-    color: #106098;
-    background-color: #c5dbec;
   }
 }
 
@@ -374,6 +441,53 @@
   h4 {
     display: inline-block;
     margin: 0 0 12px 2px;
+  }
+  .search-tags {
+    margin-left: 10px;
+    display: inline-block;
+    position: relative;
+    border: 1px solid #cccccc;
+    padding: 3px 22px 3px 3px;
+    border-radius: 4px;
+    position: relative;
+    input {
+      all: unset;
+      display: revert;
+      border: none;
+      width: 120px;
+      font-size: 14px;
+    }
+    svg {
+      position: absolute;
+      right: 5px;
+      top: 5px;
+    }
+    menu {
+      position: absolute;
+      z-index: 9;
+      top: 25px;
+      left: 0;
+      margin: 0;
+      padding: 4px;
+      list-style-type: none;
+      border-radius: 4px;
+      background-color: white;
+      border: 1px solid #cccccc;
+      box-shadow: 0px 1px 4px rgb(0 0 0 / 30%);
+      li {
+        font-size: 12px;
+        cursor: pointer;
+        color: #39739d;
+        background-color: #e1ecf4;
+        &:not(:last-child) {
+          margin-bottom: 4px;
+        }
+        &:hover, &.keyboard-selected {
+          color: #106098;
+          background-color: #c5dbec;
+        }
+      }
+    }
   }
   .filterTagsWrapper.collapsed {
     max-height: 80px;
@@ -398,13 +512,13 @@
   }
   .more-or-less {
     text-align: center;
-    margin: 3px 0 -5px 0;
-    span {
+    > span {
+      margin: 3px 0 -13px 0;
       cursor: pointer;
       font-size: 13px;
       color: #cccccc;
       padding: 8px 10px;
-      :hover {
+      &:hover {
         color: #8f8f8f
       }
     }
@@ -440,6 +554,7 @@
     }
   }
 }
+
 .owner {
   display: flex;
   align-items: center;
@@ -450,6 +565,7 @@
     margin-right: 10px;
   }
 }
+
 .not-has-more {
   text-align: center;
   margin: 20px;
