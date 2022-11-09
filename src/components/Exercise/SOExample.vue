@@ -163,10 +163,10 @@
 
   let page = 1
   const PAGESIZE = 100
-  const QUESTIONS = 'questions'
+  const QUESTION_TAGS = 'questionTags'
 
   onMounted(async () => {
-    sessionStorage.removeItem(QUESTIONS)
+    sessionStorage.removeItem(QUESTION_TAGS)
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
     window.addEventListener('resize', drawHistogram)
@@ -273,20 +273,22 @@
     state.hasMore = data.has_more
     questions.push(...data.items)
 
-    // Cache all unique questions across tag filters & pagination to aggregate tags, sortable by prominence.
+    // Cache all questions' tag sets across tag filters & pagination to aggregate tags, sortable by prominence.
     // NB: When filtering by tags prominence could become skewed towards active tags? Feature or bug?
-    const cachedQuestionsById: Question[] = JSON.parse(sessionStorage.getItem(QUESTIONS) || '{}')
+    // TODO: Subtractive tags vs. current additive approach?
+    const cachedTagsByQuestionId: { tags: string[] }[] = JSON.parse(sessionStorage.getItem(QUESTION_TAGS) || '{}')
     data.items.forEach((item: Question) => {
-      if (!cachedQuestionsById[item.question_id]) {
-        cachedQuestionsById[item.question_id] = item
+      if (!cachedTagsByQuestionId[item.question_id]) {
+        cachedTagsByQuestionId[item.question_id] = { tags: item.tags }
       }
     })
-    // TODO: Strip out unnecessary data & store in multiple buckets to avoid hitting limit of single localStorage key
-    sessionStorage.setItem(QUESTIONS, JSON.stringify(cachedQuestionsById))
+    // TODO: Store in multiple buckets to avoid hitting limit of single localStorage key?
+    //       (A used would have to load ~80K Questions)
+    sessionStorage.setItem(QUESTION_TAGS, JSON.stringify(cachedTagsByQuestionId))
 
-    // Extract unique tags from cached questions
-    for (const questionId in cachedQuestionsById) {
-      const question = cachedQuestionsById[questionId]
+    // Extract unique tags from cached question tag sets, and aggregate list of which questions have each tag
+    for (const questionId in cachedTagsByQuestionId) {
+      const question = cachedTagsByQuestionId[questionId]
       question.tags.forEach(questionTag => {
         const existingTag = tags.find(tag => tag.name === questionTag)
         if (existingTag) {
@@ -365,7 +367,7 @@
   }
 
   function changePrimaryTag(primaryTag: string): void {
-    sessionStorage.removeItem(QUESTIONS)
+    sessionStorage.removeItem(QUESTION_TAGS)
     tags.splice(0, tags.length)
     resetQuestions()
     const query = primaryTag === PREFECT ? {} : { primary_tag: primaryTag }
