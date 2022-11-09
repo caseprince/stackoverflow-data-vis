@@ -11,12 +11,17 @@
           </template>
         </menu>
       </span> tag
+      <span class="questions-count">
+        <span v-if="!state.loading && !state.hasMore">{{ questions.length }} of </span>
+        {{ questions.length }} questions loaded
+        <button v-if="!state.loading && state.hasMore" @click="nextPage">Load {{ PAGESIZE }} More</button>
+      </span>
     </h3>
     <div class="filters">
       <h4>Filter by {{ tags.length }} additional tags:</h4>
       <div class="search-tags">
         <input ref="searchTagsInput" placeholder="Search for tags" @input="changesearchTagsInput" @keydown="searchTagsInputKeyDown">
-        <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" />
+        <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
         <menu v-if="searchTags.results.length">
           <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
             <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
@@ -41,6 +46,9 @@
         </span>
       </div>
     </div>
+
+    <svg class="timeline" width="100%" height="25px"><g /></svg>
+
     <table class="questions-table">
       <tr>
         <th>User</th>
@@ -90,8 +98,9 @@
 
 <script lang="ts" setup>
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+  import * as d3 from 'd3'
   import moment from 'moment'
-  import { InputHTMLAttributes, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+  import { InputHTMLAttributes, onBeforeUnmount, onMounted, onRenderTracked, onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
 
@@ -151,31 +160,93 @@
   const filterTags = ref<HTMLElement | undefined>()
 
   let page = 1
-  const PAGESIZE = 50
+  const PAGESIZE = 100
   const QUESTIONS = 'questions'
 
   onMounted(async () => {
     sessionStorage.removeItem(QUESTIONS)
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
-  })
-
-  onBeforeUnmount(() => {
-    window.removeEventListener('scroll', onScroll)
+    window.addEventListener('resize', drawHistogram)
   })
 
   onBeforeRouteUpdate(async to => {
     await loadQuestions(to.query)
   })
 
+  onUpdated(() => {
+    drawHistogram()
+  })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('scroll', onScroll)
+    window.addEventListener('resize', drawHistogram)
+  })
+
   const onScroll = (): void => {
     if (window.innerHeight + Math.ceil(window.pageYOffset) >= document.body.offsetHeight) {
       if (state.hasMore && !state.loading) {
-        page++
-        state.loading = true
-        loadQuestions()
+        nextPage()
       }
     }
+  }
+
+  const nextPage = (): void => {
+    page++
+    state.loading = true
+    loadQuestions()
+  }
+
+  function drawHistogram(): void  {
+    d3.selectAll('svg.timeline > *').remove()
+    if (!questions.length) {
+      return
+    }
+    const data = questions.map(question => ({ date: new Date(question.creation_date * 1000) }))
+    const timeLineSvg = d3.select('svg.timeline')
+
+    // https://observablehq.com/@d3/d3-bin-time-thresholds
+    function thresholdTime(n) {
+      return (_data: any[], min: number, max: number) => {
+        return d3.scaleTime().domain([min, max]).ticks(n)
+      }
+    }
+
+    const bins = d3.bin().value(d => d.date).thresholds(thresholdTime(40))(data)
+    const bounds = timeLineSvg.node().getBoundingClientRect()
+    const { width, height } = bounds
+
+    const g = timeLineSvg.append('g')
+
+    const x = d3
+      .scaleTime()
+      .domain(
+        d3.extent(data, d => d.date),
+      )
+      .rangeRound([0, width])
+
+    const y = d3
+      .scaleLinear()
+      .domain([0, d3.max(bins, (d) =>  d.length)],
+
+      )
+      .rangeRound([height, 0])
+
+    g.append('g')
+      .attr('transform', `translate(0,${  height  })`)
+      .call(d3.axisBottom(x).ticks(17))
+
+    g.append('g')
+      .attr('fill', '#a5c9e6')
+      .selectAll('rect')
+      .data(bins)
+      .join('rect')
+      .attr('x', d => Math.round(x(d.x0)) + 1)
+      .attr('y', d => y(d.length))
+      .attr('height', d => y(0) - y(d.length))
+      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
+      .append('svg:title')
+      .text(d => d.length)
   }
 
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
@@ -187,7 +258,7 @@
       page: String(page),
       pagesize: String(PAGESIZE),
       order: 'desc',
-      sort: 'activity',
+      sort: 'creation',
       site: 'stackoverflow',
       tagged: activeTags.join(';'),
     }
@@ -206,6 +277,7 @@
         cachedQuestionsById[item.question_id] = item
       }
     })
+    // TODO: Strip out unnecessary data & store in multiple buckets to avoid hitting limit of single localStorage key
     sessionStorage.setItem(QUESTIONS, JSON.stringify(cachedQuestionsById))
 
     // Extract unique tags from cached questions
@@ -245,6 +317,8 @@
         tags.unshift({ name: qTag, questionIds: [], active: true })
       }
     })
+
+    drawHistogram()
   }
 
   const fetchDataWithCache = async (url: string): Promise<any> => {
@@ -273,6 +347,7 @@
     page = 1
     state.loading = true
     questions.splice(0, questions.length)
+    d3.selectAll('svg.timeline > *').remove()
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -380,6 +455,25 @@
 
 .so-title {
   margin: 0px 0 20px 5px;
+  .questions-count {
+    font-size: 15px;
+    color: #878787;
+    font-weight: normal;
+    float: right;
+    margin-right: 10px;
+    button {
+      margin-left: 10px;
+      padding: 4px 8px 3px 8px;
+      color: #424242;
+      background-color: #e4e4e4;
+      border: 1px solid #3e3e3e;
+      border-radius: 3px;
+      cursor: pointer;
+      &:hover {
+        background-color: #efefef;;
+      }
+    }
+  }
 }
 
 .spinner-holder {
@@ -460,7 +554,7 @@
     svg {
       position: absolute;
       right: 5px;
-      top: 5px;
+      top: 6px;
     }
     menu {
       position: absolute;
@@ -525,6 +619,10 @@
   }
 }
 
+svg.timeline {
+  margin: 0 0 20px 0;
+  overflow: visible;
+}
 .questions-table {
   border-collapse: collapse;
   width: 100%;
