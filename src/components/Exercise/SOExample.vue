@@ -12,9 +12,10 @@
         </menu>
       </span> tag
       <span class="questions-count">
+        <FontAwesomeIcon v-if="state.loading && state.hasMore" :icon="['fas', 'spinner']" spin size="1x" color="#cccccc" />
         <span v-if="!state.loading && !state.hasMore">{{ questions.length }} of </span>
         {{ questions.length }} questions loaded
-        <button v-if="!state.loading && state.hasMore" @click="nextPage">Load {{ PAGESIZE }} More</button>
+        <button v-if="state.hasMore" :disabled="state.loading" type="button" @click="nextPage">Load {{ PAGESIZE }} More</button>
       </span>
     </h3>
     <div class="filters">
@@ -31,7 +32,7 @@
         </menu>
       </div>
       <!-- TODO: Explanatory tooltip -->
-      <div class="filterTagsWrapper" :class="state.tagsCollapsed && 'collapsed'">
+      <div class="filterTagsWrapper" :class="!state.tagsExpanded && 'collapsed'">
         <div ref="filterTags" class="tags">
           <template v-for="tag in tags" :key="tag.name">
             <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
@@ -39,9 +40,9 @@
         </div>
       </div>
       <hr>
-      <div class="more-or-less">
-        <span v-if="filterTags && filterTags.clientHeight > COLLAPSED_TAGS_HEIGHT" @click="toggleTagsCollapsed">
-          <span v-if="state.tagsCollapsed">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
+      <div v-if="state.tagsCanExpand" class="more-or-less">
+        <span @click="toggleTagsExpanded">
+          <span v-if="!state.tagsExpanded">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
           <span v-else>less <FontAwesomeIcon :icon="['fas', 'angle-up']" /></span>
         </span>
       </div>
@@ -100,7 +101,7 @@
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
   import * as d3 from 'd3'
   import moment from 'moment'
-  import { InputHTMLAttributes, onBeforeUnmount, onMounted, onRenderTracked, onUpdated, reactive, ref } from 'vue'
+  import { InputHTMLAttributes, onBeforeUnmount, onMounted,  onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
 
@@ -144,7 +145,8 @@
     loading: true,
     hasMore: false,
     primaryTagDropdownOpen: false,
-    tagsCollapsed: true,
+    tagsCanExpand: false,
+    tagsExpanded: false,
   })
 
   const PREFECT = 'prefect'
@@ -175,6 +177,8 @@
   })
 
   onUpdated(() => {
+    state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
+    // TODO: skip rendering if screen width not changed
     drawHistogram()
   })
 
@@ -432,8 +436,8 @@
     resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
-  function toggleTagsCollapsed(): void {
-    state.tagsCollapsed = !state.tagsCollapsed
+  function toggleTagsExpanded(): void {
+    state.tagsExpanded = !state.tagsExpanded
   }
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
@@ -454,7 +458,7 @@
 }
 
 .so-title {
-  margin: 0px 0 20px 5px;
+  margin: 0px 0 20px 9px;
   .questions-count {
     font-size: 15px;
     color: #878787;
@@ -468,9 +472,12 @@
       background-color: #e4e4e4;
       border: 1px solid #3e3e3e;
       border-radius: 3px;
-      cursor: pointer;
-      &:hover {
+      &:hover:not(:disabled) {
+        cursor: pointer;
         background-color: #efefef;;
+      }
+      &:disabled {
+        color: #aaaaaa;
       }
     }
   }
