@@ -1,23 +1,30 @@
 <template>
   <div class="so-example">
-    <h3 class="so-title">
-      <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" color="#e68e47" />
-      Stack Overflow Questions with
-      <span class="primary-tag-dropdown">
-        <span class="tag" @click="togglePrimaryTagDropdown">{{ getActivePrimaryTab() }}<i>🞃</i></span>
-        <menu v-if="state.primaryTagDropdownOpen">
-          <template v-for="primaryTag in getPrimaryTagsMenu()" :key="`${primaryTag}_primary`">
-            <li @click="changePrimaryTag(primaryTag)">{{ primaryTag }}</li>
-          </template>
-        </menu>
-      </span> tag
+    <header>
+      <h3>
+        <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" color="#e68e47" />
+        Stack Overflow Questions with
+        <span class="primary-tag-dropdown">
+          <span class="tag" @click="togglePrimaryTagDropdown">{{ getActivePrimaryTab() }}<i>🞃</i></span>
+          <menu v-if="state.primaryTagDropdownOpen">
+            <template v-for="primaryTag in getPrimaryTagsMenu()" :key="`${primaryTag}_primary`">
+              <li @click="changePrimaryTag(primaryTag)">{{ primaryTag }}</li>
+            </template>
+          </menu>
+        </span> tag
+      </h3>
+      <div class="toggle-switch">
+        <label @click="toggleNewestFirst(true) ">newest first</label>
+        <div :class="!state.newest && 'on'" @click="toggleNewestFirst(!state.newest)" />
+        <label @click="toggleNewestFirst(false)">oldest first</label>
+      </div>
       <span class="questions-count">
         <FontAwesomeIcon v-if="state.loading && state.hasMore" :icon="['fas', 'spinner']" spin size="1x" color="#cccccc" />
         <span v-if="!state.loading && !state.hasMore">{{ questions.length }} of </span>
         {{ questions.length }} questions loaded
         <button v-if="state.hasMore" :disabled="state.loading" type="button" @click="nextPage">Load {{ PAGESIZE }} More</button>
       </span>
-    </h3>
+    </header>
     <div class="filters">
       <h4>Filter by {{ tags.length }} additional tags:</h4>
       <div class="search-tags">
@@ -147,6 +154,7 @@
     primaryTagDropdownOpen: false,
     tagsCanExpand: false,
     tagsExpanded: false,
+    newest: true,
   })
 
   const PREFECT = 'prefect'
@@ -261,7 +269,7 @@
     const apiParams = {
       page: String(page),
       pagesize: String(PAGESIZE),
-      order: 'desc',
+      order: state.newest ? 'desc' : 'asc',
       sort: 'creation',
       site: 'stackoverflow',
       tagged: activeTags.join(';'),
@@ -444,6 +452,13 @@
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
+  function toggleNewestFirst(newest: boolean): void {
+    if (newest !== state.newest) {
+      state.newest = newest
+      resetQuestions()
+      loadQuestions()
+    }
+  }
 
   function onClickTableRow(link: string): void {
     // This would useful for future analytics, but something involving <a>s would likely be better UX, since
@@ -459,13 +474,19 @@
   padding: 24px 12px;
 }
 
-.so-title {
-  margin: 0px 0 20px 9px;
+header {
+  display: flex;
+  margin-bottom: 20px;
+  h3 {
+    flex: 0 0 auto;
+    margin: 0 0 0 9px;
+  }
   .questions-count {
+    flex: 1 1 auto;
+    text-align: right;
     font-size: 15px;
     color: #878787;
     font-weight: normal;
-    float: right;
     margin-right: 10px;
     button {
       margin-left: 10px;
@@ -480,6 +501,52 @@
       }
       &:disabled {
         color: #aaaaaa;
+      }
+    }
+  }
+}
+
+.toggle-switch {
+  display: flex;
+  align-items: center;
+  margin-left: 20px;
+  label {
+    font-size: 14px;
+    padding: 0 7px;
+    cursor: pointer;
+    &:hover {
+      color: #0c3c9b;
+      text-decoration: underline;
+    }
+  }
+  > div {
+    width: 36px;
+    height: 18px;
+    border-radius: 9px;
+    position: relative;
+    background-color: #eeeeee;
+    border: 1px solid #cccccc;
+    box-shadow: 0px 1px 4px rgb(0 0 0 / 14%) inset;
+    cursor: pointer;
+    &:after {
+      content: '';
+      display: block;
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 12px;
+      height: 12px;
+      border-radius: 6px;
+      background-color: #5592be;
+      transition: left 0.1s ease-in-out;
+    }
+    &.on:after {
+      left: 21px;
+    }
+    &:hover {
+      background-color: #efefef;
+      &:after {
+        background-color: #72aeda;
       }
     }
   }
