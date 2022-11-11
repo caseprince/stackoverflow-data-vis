@@ -82,7 +82,7 @@
       </div>
     </div>
 
-    <svg class="timeline" width="100%" height="25px"><g /></svg>
+    <svg v-if="questions.length >= 2" class="timeline" width="100%" height="25px"><g /></svg>
 
     <table class="questions-table">
       <tr>
@@ -169,7 +169,7 @@
 
   type Tag = {
     name: string,
-    questionIds: string[],
+    questionIds: number[],
     active?: boolean,
   }
 
@@ -197,16 +197,16 @@
 
   let page = 1
   const PAGESIZE = 100
-  const QUESTION_TAGS = 'questionTags'
 
   onMounted(async () => {
-    sessionStorage.removeItem(QUESTION_TAGS)
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
     window.addEventListener('resize', drawHistogram)
   })
 
   onBeforeRouteUpdate(async to => {
+    d3.selectAll('svg.timeline > *').remove()
+    questions.splice(0, questions.length)
     await loadQuestions(to.query)
   })
 
@@ -237,11 +237,11 @@
 
   function drawHistogram(): void  {
     d3.selectAll('svg.timeline > *').remove()
-    if (!questions.length) {
+    const timeLineSvg = d3.select('svg.timeline')
+    if (!timeLineSvg.node()) {
       return
     }
     const data = questions.map(question => ({ date: new Date(question.creation_date * 1000) }))
-    const timeLineSvg = d3.select('svg.timeline')
 
     // https://observablehq.com/@d3/d3-bin-time-thresholds
     function thresholdTime(n) {
@@ -317,32 +317,20 @@
     state.hasMore = data.has_more
     questions.push(...data.items)
 
-    // Cache all questions' tag sets across tag filters & pagination to aggregate tags, sortable by prominence.
-    // NB: When filtering by tags prominence could become skewed towards active tags? Feature or bug?
-    // TODO: Subtractive tags vs. current additive approach?
-    const cachedTagsByQuestionId: { tags: string[] }[] = JSON.parse(sessionStorage.getItem(QUESTION_TAGS) || '{}')
-    data.items.forEach((item: Question) => {
-      if (!cachedTagsByQuestionId[item.question_id]) {
-        cachedTagsByQuestionId[item.question_id] = { tags: item.tags }
-      }
-    })
-    // TODO: Store in multiple buckets to avoid hitting limit of single localStorage key?
-    //       (A used would have to load ~80K Questions)
-    sessionStorage.setItem(QUESTION_TAGS, JSON.stringify(cachedTagsByQuestionId))
+    tags.splice(0, tags.length)
 
     // Extract unique tags from cached question tag sets, and aggregate list of which questions have each tag
-    for (const questionId in cachedTagsByQuestionId) {
-      const question = cachedTagsByQuestionId[questionId]
+    questions.forEach(question => {
       question.tags.forEach(questionTag => {
         const existingTag = tags.find(tag => tag.name === questionTag)
         if (existingTag) {
-          existingTag.questionIds.push(questionId)
+          existingTag.questionIds.push(question.question_id)
         // Exclude query.primaryTag or implied 'prefect' primaryTag
         } else if (questionTag !== (query.primary_tag ? query.primary_tag : PREFECT)) {
-          tags.push({ name: questionTag, questionIds: [questionId] })
+          tags.push({ name: questionTag, questionIds: [question.question_id] })
         }
       })
-    }
+    })
     tags.sort((a, b) => {
       // Primary sort on how many questions have tag (tag prominence)
       if (a.questionIds.length !== b.questionIds.length) {
@@ -396,8 +384,6 @@
   const resetQuestions = (): void => {
     page = 1
     state.loading = true
-    questions.splice(0, questions.length)
-    d3.selectAll('svg.timeline > *').remove()
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -411,8 +397,6 @@
   }
 
   function changePrimaryTag(primaryTag: string): void {
-    sessionStorage.removeItem(QUESTION_TAGS)
-    tags.splice(0, tags.length)
     const { primary_tag: _primary_tag, ...query } = router.currentRoute.value.query
     if (primaryTag !== PREFECT) {
       query.primary_tag = primaryTag
@@ -455,9 +439,9 @@
     }
   }
   function addSearchedTag(tag: string): void {
-    const [tags, query] = getTagsAndTaglessQuery()
-    tags.push(tag)
-    query.tags = tags.join(';')
+    const [qTags, query] = getTagsAndTaglessQuery()
+    qTags.push(tag)
+    query.tags = qTags.join(';')
     resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
@@ -472,16 +456,17 @@
 
   // Adds or removes a tag from currentRoute's 'tags' query params
   function toggleTag(tag: string): void {
-    const [tags, query] = getTagsAndTaglessQuery()
-    if (tags.includes(tag)) {
-      tags.splice(tags.indexOf(tag), 1)
+    const [qTags, query] = getTagsAndTaglessQuery()
+    if (qTags.includes(tag)) {
+      qTags.splice(qTags.indexOf(tag), 1)
     } else {
-      tags.push(tag)
+      qTags.push(tag)
     }
-    if (tags.length) {
+    if (qTags.length) {
       // Only add tags param back if tag filters present
-      query.tags = tags.join(';')
+      query.tags = qTags.join(';')
     }
+
     resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
@@ -502,7 +487,7 @@
 
   function toggleOldestFirst(oldest: boolean): void {
     if (oldest !== !!router.currentRoute.value.query.oldest) {
-      updateOrRemoveQueryParam('oldest', oldest)
+      updateOrRemoveQueryParam('oldest', String(oldest))
     }
   }
 
