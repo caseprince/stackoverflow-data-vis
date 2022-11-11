@@ -14,9 +14,9 @@
         </span> tag
       </h3>
       <div class="toggle-switch">
-        <label @click="toggleNewestFirst(true) ">newest first</label>
-        <div :class="!state.newest && 'on'" @click="toggleNewestFirst(!state.newest)" />
-        <label @click="toggleNewestFirst(false)">oldest first</label>
+        <label :class="!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(false)">newest first</label>
+        <div :class="!!router.currentRoute.value.query.oldest && 'on'" @click="toggleOldestFirst(!router.currentRoute.value.query.oldest)" />
+        <label :class="!!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(true)">oldest first</label>
       </div>
       <span class="questions-count">
         <FontAwesomeIcon v-if="state.loading && state.hasMore" :icon="['fas', 'spinner']" spin size="1x" color="#cccccc" />
@@ -154,7 +154,6 @@
     primaryTagDropdownOpen: false,
     tagsCanExpand: false,
     tagsExpanded: false,
-    newest: true,
   })
 
   const PREFECT = 'prefect'
@@ -264,12 +263,13 @@
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
     // TODO: Date filters, sort
     const activeTags = query.tags ? (query.tags as string).split(';') : []
+    const newest = !query.oldest
     activeTags.unshift(query.primary_tag as string || PREFECT)
 
     const apiParams = {
       page: String(page),
       pagesize: String(PAGESIZE),
-      order: state.newest ? 'desc' : 'asc',
+      order: newest ? 'desc' : 'asc',
       sort: 'creation',
       site: 'stackoverflow',
       tagged: activeTags.join(';'),
@@ -377,8 +377,11 @@
   function changePrimaryTag(primaryTag: string): void {
     sessionStorage.removeItem(QUESTION_TAGS)
     tags.splice(0, tags.length)
+    const { primary_tag: _primary_tag, ...query } = router.currentRoute.value.query
+    if (primaryTag !== PREFECT) {
+      query.primary_tag = primaryTag
+    }
     resetQuestions()
-    const query = primaryTag === PREFECT ? {} : { primary_tag: primaryTag }
     router.push({ path: router.currentRoute.value.path, query })
   }
 
@@ -452,11 +455,14 @@
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
-  function toggleNewestFirst(newest: boolean): void {
-    if (newest !== state.newest) {
-      state.newest = newest
+  function toggleOldestFirst(oldest: boolean): void {
+    if (oldest !== !!router.currentRoute.value.query.oldest) {
+      const { oldest: _oldest, ...query } = router.currentRoute.value.query
+      if (oldest) {
+        query.oldest = 'true'
+      }
       resetQuestions()
-      loadQuestions()
+      router.push({ path: router.currentRoute.value.path, query })
     }
   }
 
@@ -513,8 +519,8 @@ header {
   label {
     font-size: 14px;
     padding: 0 7px;
-    cursor: pointer;
-    &:hover {
+    &:hover:not(.active) {
+      cursor: pointer;
       color: #0c3c9b;
       text-decoration: underline;
     }
