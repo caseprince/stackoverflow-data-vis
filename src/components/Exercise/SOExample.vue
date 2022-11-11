@@ -301,13 +301,13 @@
       site: 'stackoverflow',
       tagged: activeTags.join(';'),
     }
-    // TODO: Timezone offset!
+    const timeZoneOffsetSeconds = new Date().getTimezoneOffset() * 60
     if (query.from_date) {
-      apiParams.fromdate = new Date(query.from_date as string).getTime() / 1000
+      apiParams.fromdate = new Date(query.from_date as string).getTime() / 1000 + timeZoneOffsetSeconds
     }
     if (query.to_date) {
       const dayInSeconds = 60 * 60 * 24
-      apiParams.todate = new Date(query.to_date as string).getTime() / 1000 + dayInSeconds
+      apiParams.todate = new Date(query.to_date as string).getTime() / 1000 + dayInSeconds + timeZoneOffsetSeconds
     }
 
     const URLParams = new URLSearchParams(apiParams).toString()
@@ -476,10 +476,10 @@
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
-  const updateOrRemoveQueryParam = (param: string, value?: string): void => {
+  const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
     const { [param]: _oldParam, ...query } = router.currentRoute.value.query
     if (value) {
-      query[param] = value
+      query[param] = String(value)
     }
     resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
@@ -487,7 +487,7 @@
 
   function toggleOldestFirst(oldest: boolean): void {
     if (oldest !== !!router.currentRoute.value.query.oldest) {
-      updateOrRemoveQueryParam('oldest', String(oldest))
+      updateOrRemoveQueryParam('oldest', oldest)
     }
   }
 
