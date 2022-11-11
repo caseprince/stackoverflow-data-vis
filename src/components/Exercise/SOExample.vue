@@ -13,11 +13,6 @@
           </menu>
         </span> tag
       </h3>
-      <div class="toggle-switch">
-        <label :class="!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(false)">newest first</label>
-        <div :class="!!router.currentRoute.value.query.oldest && 'on'" @click="toggleOldestFirst(!router.currentRoute.value.query.oldest)" />
-        <label :class="!!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(true)">oldest first</label>
-      </div>
       <span class="questions-count">
         <FontAwesomeIcon v-if="state.loading && state.hasMore" :icon="['fas', 'spinner']" spin size="1x" color="#cccccc" />
         <span v-if="!state.loading && !state.hasMore">{{ questions.length }} of </span>
@@ -25,19 +20,51 @@
         <button v-if="state.hasMore" :disabled="state.loading" type="button" @click="nextPage">Load {{ PAGESIZE }} More</button>
       </span>
     </header>
+
     <div class="filters">
-      <h4>Filter by {{ tags.length }} additional tags:</h4>
-      <div class="search-tags">
-        <input ref="searchTagsInput" placeholder="Search for tags" @input="changesearchTagsInput" @keydown="searchTagsInputKeyDown">
-        <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
-        <menu v-if="searchTags.results.length">
-          <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
-            <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
-              {{ tag }}
-            </li>
-          </template>
-        </menu>
+      <div class="filters-row">
+        <div>
+          <h4>Filter by {{ tags.length }} additional tags:</h4>
+          <div class="search-tags">
+            <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
+            <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
+            <menu v-if="searchTags.results.length">
+              <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
+                <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
+                  {{ tag }}
+                </li>
+              </template>
+            </menu>
+          </div>
+        </div>
+        <div class="date-filters">
+          <h4>Date Filters:</h4>
+          <div class="toggle-switch">
+            <label :class="!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(false)">newest first</label>
+            <div :class="!!router.currentRoute.value.query.oldest && 'on'" @click="toggleOldestFirst(!router.currentRoute.value.query.oldest)" />
+            <label :class="!!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(true)">oldest first</label>
+          </div>
+          <label for="start-date">from: </label>
+          <input
+            id="start-date"
+            type="date"
+            min="2008-01-01"
+            :max="new Date().toISOString().split('T')[0]"
+            :value="router.currentRoute.value.query.from_date"
+            @input="setFromDate"
+          >
+          <label for="end-date">to: </label>
+          <input
+            id="end-date"
+            type="date"
+            min="2008-01-01"
+            :max="new Date().toISOString().split('T')[0]"
+            :value="router.currentRoute.value.query.to_date"
+            @input="setToDate"
+          >
+        </div>
       </div>
+
       <!-- TODO: Explanatory tooltip -->
       <div class="filterTagsWrapper" :class="!state.tagsExpanded && 'collapsed'">
         <div ref="filterTags" class="tags">
@@ -266,7 +293,7 @@
     const newest = !query.oldest
     activeTags.unshift(query.primary_tag as string || PREFECT)
 
-    const apiParams = {
+    const apiParams: any = {
       page: String(page),
       pagesize: String(PAGESIZE),
       order: newest ? 'desc' : 'asc',
@@ -274,6 +301,15 @@
       site: 'stackoverflow',
       tagged: activeTags.join(';'),
     }
+    // TODO: Timezone offset!
+    if (query.from_date) {
+      apiParams.fromdate = new Date(query.from_date as string).getTime() / 1000
+    }
+    if (query.to_date) {
+      const dayInSeconds = 60 * 60 * 24
+      apiParams.todate = new Date(query.to_date as string).getTime() / 1000 + dayInSeconds
+    }
+
     const URLParams = new URLSearchParams(apiParams).toString()
     const url = `https://api.stackexchange.com/2.3/questions?${URLParams}`
     const data = await fetchDataWithCache(url)
@@ -396,7 +432,7 @@
 
   const searchTags: { results: string[], keyIndex: number } = reactive({ results: [], keyIndex: -1 })
   const searchTagsInput = ref<InputHTMLAttributes | undefined>()
-  async function changesearchTagsInput(event: Event): Promise<void> {
+  async function changeSearchTagsInput(event: Event): Promise<void> {
     // TODO: Debounce?
     const searchTerm = (event.target as HTMLInputElement).value
     if (!searchTerm) {
@@ -455,15 +491,29 @@
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
+  const updateOrRemoveQueryParam = (param: string, value?: string): void => {
+    const { [param]: _oldParam, ...query } = router.currentRoute.value.query
+    if (value) {
+      query[param] = value
+    }
+    resetQuestions()
+    router.push({ path: router.currentRoute.value.path, query })
+  }
+
   function toggleOldestFirst(oldest: boolean): void {
     if (oldest !== !!router.currentRoute.value.query.oldest) {
-      const { oldest: _oldest, ...query } = router.currentRoute.value.query
-      if (oldest) {
-        query.oldest = 'true'
-      }
-      resetQuestions()
-      router.push({ path: router.currentRoute.value.path, query })
+      updateOrRemoveQueryParam('oldest', oldest)
     }
+  }
+
+  function setFromDate(event: Event): void {
+    const fromDate = (event.target as HTMLInputElement).value
+    updateOrRemoveQueryParam('from_date', fromDate)
+  }
+
+  function setToDate(event: Event): void {
+    const toDate = (event.target as HTMLInputElement).value
+    updateOrRemoveQueryParam('to_date', toDate)
   }
 
   function onClickTableRow(link: string): void {
@@ -515,7 +565,6 @@ header {
 .toggle-switch {
   display: flex;
   align-items: center;
-  margin-left: 20px;
   label {
     font-size: 14px;
     padding: 0 7px;
@@ -614,9 +663,35 @@ header {
 
 .filters {
   margin: 0 0 12px;
+  .filters-row {
+    display: flex;
+    justify-content: space-between;
+  }
   h4 {
     display: inline-block;
     margin: 0 0 12px 2px;
+  }
+  label {
+    color: #878787;
+  }
+  .date-filters {
+    display: flex;
+    align-items: center;
+    margin: 0 0 12px 2px;
+    h4 {
+      margin: 0 10px 0 0;
+    }
+    > label {
+      margin: 0 5px 0 15px;
+      font-size: 14px;
+    }
+    input {
+      border: 1px solid #cccccc;
+      padding: 3px 5px;
+      border-radius: 4px;
+      font-family: inherit;
+      height: 19px;
+    }
   }
   .search-tags {
     margin-left: 10px;
