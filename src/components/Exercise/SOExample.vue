@@ -1,5 +1,5 @@
 <template>
-  <div class="so-example">
+  <div class="so-visualizer">
     <header>
       <h3>
         <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" color="#e68e47" />
@@ -65,8 +65,7 @@
         </div>
       </div>
 
-      <!-- TODO: Explanatory tooltip -->
-      <div class="filterTagsWrapper" :class="!state.tagsExpanded && 'collapsed'">
+      <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'">
         <div ref="filterTags" class="tags">
           <template v-for="tag in tags" :key="tag.name">
             <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
@@ -207,6 +206,7 @@
   onBeforeRouteUpdate(async to => {
     d3.selectAll('svg.timeline > *').remove()
     questions.splice(0, questions.length)
+    page = 1
     await loadQuestions(to.query)
   })
 
@@ -231,63 +231,33 @@
 
   const nextPage = (): void => {
     page++
-    state.loading = true
     loadQuestions()
   }
 
-  function drawHistogram(): void  {
-    d3.selectAll('svg.timeline > *').remove()
-    const timeLineSvg = d3.select('svg.timeline')
-    if (!timeLineSvg.node()) {
-      return
-    }
-    const data = questions.map(question => ({ date: new Date(question.creation_date * 1000) }))
-
-    // https://observablehq.com/@d3/d3-bin-time-thresholds
-    function thresholdTime(n) {
-      return (_data: any[], min: number, max: number) => {
-        return d3.scaleTime().domain([min, max]).ticks(n)
+  const fetchDataWithCache = async (url: string): Promise<any> => {
+    let data
+    const cachedURL = sessionStorage.getItem(url)
+    if (cachedURL) {
+      const cache = JSON.parse(cachedURL)
+      const cacheAgeInSeconds = Math.floor((new Date().getTime() - cache.time) / 1000)
+      // Aggressive caching for local development
+      if (cacheAgeInSeconds < 60 * 60 * 12) {
+        console.log(`Using cached data! (${moment.duration(cacheAgeInSeconds, 'seconds').humanize()} old) ${url}`)
+        data = cache.data
       }
     }
-
-    const bins = d3.bin().value(d => d.date).thresholds(thresholdTime(40))(data)
-    const bounds = timeLineSvg.node().getBoundingClientRect()
-    const { width, height } = bounds
-
-    const g = timeLineSvg.append('g')
-
-    const x = d3
-      .scaleTime()
-      .domain(
-        d3.extent(data, d => d.date),
-      )
-      .rangeRound([0, width])
-
-    const y = d3
-      .scaleLinear()
-      .domain([0, d3.max(bins, (d) =>  d.length)],
-
-      )
-      .rangeRound([height, 0])
-
-    g.append('g')
-      .attr('transform', `translate(0,${  height  })`)
-      .call(d3.axisBottom(x).ticks(17))
-
-    g.append('g')
-      .attr('fill', '#a5c9e6')
-      .selectAll('rect')
-      .data(bins)
-      .join('rect')
-      .attr('x', d => Math.round(x(d.x0)) + 1)
-      .attr('y', d => y(d.length))
-      .attr('height', d => y(0) - y(d.length))
-      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
-      .append('svg:title')
-      .text(d => d.length)
+    if (!data) {
+      const response = await fetch(url)
+      data = await response.json()
+      // NB: https://api.stackexchange.com/docs/throttle
+      console.log(`API calls remaining: ${data.quota_remaining}`)
+      sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
+    }
+    return data
   }
 
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
+    state.loading = true
     // TODO: Date filters, sort
     const activeTags = query.tags ? (query.tags as string).split(';') : []
     const newest = !query.oldest
@@ -359,31 +329,56 @@
     drawHistogram()
   }
 
-  const fetchDataWithCache = async (url: string): Promise<any> => {
-    let data
-    const cachedURL = sessionStorage.getItem(url)
-    if (cachedURL) {
-      const cache = JSON.parse(cachedURL)
-      const cacheAgeInSeconds = Math.floor((new Date().getTime() - cache.time) / 1000)
-      // Aggressive caching for local development
-      if (cacheAgeInSeconds < 60 * 60 * 12) {
-        console.log(`Using cached data! (${moment.duration(cacheAgeInSeconds, 'seconds').humanize()} old) ${url}`)
-        data = cache.data
+  function drawHistogram(): void  {
+    d3.selectAll('svg.timeline > *').remove()
+    const timeLineSvg = d3.select('svg.timeline')
+    if (!timeLineSvg.node()) {
+      return
+    }
+    const data = questions.map(question => ({ date: new Date(question.creation_date * 1000) }))
+
+    // https://observablehq.com/@d3/d3-bin-time-thresholds
+    function thresholdTime(n) {
+      return (_data: any[], min: number, max: number) => {
+        return d3.scaleTime().domain([min, max]).ticks(n)
       }
     }
-    if (!data) {
-      const response = await fetch(url)
-      data = await response.json()
-      // NB: https://api.stackexchange.com/docs/throttle
-      console.log(`API calls remaining: ${data.quota_remaining}`)
-      sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
-    }
-    return data
-  }
 
-  const resetQuestions = (): void => {
-    page = 1
-    state.loading = true
+    const bins = d3.bin().value(d => d.date).thresholds(thresholdTime(40))(data)
+    const bounds = timeLineSvg.node().getBoundingClientRect()
+    const { width, height } = bounds
+
+    const g = timeLineSvg.append('g')
+
+    const x = d3
+      .scaleTime()
+      .domain(
+        d3.extent(data, d => d.date),
+      )
+      .rangeRound([0, width])
+
+    const y = d3
+      .scaleLinear()
+      .domain([0, d3.max(bins, (d) =>  d.length)],
+
+      )
+      .rangeRound([height, 0])
+
+    g.append('g')
+      .attr('transform', `translate(0,${  height  })`)
+      .call(d3.axisBottom(x).ticks(17))
+
+    g.append('g')
+      .attr('fill', '#a5c9e6')
+      .selectAll('rect')
+      .data(bins)
+      .join('rect')
+      .attr('x', d => Math.round(x(d.x0)) + 1)
+      .attr('y', d => y(d.length))
+      .attr('height', d => y(0) - y(d.length))
+      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
+      .append('svg:title')
+      .text(d => d.length)
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -401,7 +396,6 @@
     if (primaryTag !== PREFECT) {
       query.primary_tag = primaryTag
     }
-    resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
 
@@ -416,6 +410,7 @@
 
   const searchTags: { results: string[], keyIndex: number } = reactive({ results: [], keyIndex: -1 })
   const searchTagsInput = ref<InputHTMLAttributes | undefined>()
+
   async function changeSearchTagsInput(event: Event): Promise<void> {
     // TODO: Debounce?
     const searchTerm = (event.target as HTMLInputElement).value
@@ -428,6 +423,7 @@
     const data = await fetchDataWithCache(url)
     searchTags.results = data.items.map((tag: any) => tag.name)
   }
+
   function searchTagsInputKeyDown(event: KeyboardEvent): void {
     if (event.key === 'ArrowDown') {
       searchTags.keyIndex = (searchTags.keyIndex + 1) % searchTags.results.length
@@ -438,13 +434,14 @@
       clearSearchTags()
     }
   }
+
   function addSearchedTag(tag: string): void {
     const [qTags, query] = getTagsAndTaglessQuery()
     qTags.push(tag)
     query.tags = qTags.join(';')
-    resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
+
   const clearSearchTags = (): void => {
     if (searchTagsInput.value) {
       searchTagsInput.value.value = ''
@@ -466,10 +463,9 @@
       // Only add tags param back if tag filters present
       query.tags = qTags.join(';')
     }
-
-    resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
+
   function toggleTagsExpanded(): void {
     state.tagsExpanded = !state.tagsExpanded
   }
@@ -477,12 +473,12 @@
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
 
+  // Updates query param or removes it if value if falsey
   const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
     const { [param]: _oldParam, ...query } = router.currentRoute.value.query
     if (value) {
       query[param] = String(value)
     }
-    resetQuestions()
     router.push({ path: router.currentRoute.value.path, query })
   }
 
@@ -492,9 +488,9 @@
     }
   }
 
-  function toISOLocalDate(d: Date): string {
-    const z = (n: number): string => `0${n}`.slice(-2)
-    return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`
+  function toISOLocalDate(date: Date): string {
+    const zeroPad = (num: number): string => `0${num}`.slice(-2)
+    return `${date.getFullYear()}-${zeroPad(date.getMonth()+1)}-${zeroPad(date.getDate())}`
   }
 
   // TODO: Prevent/warn on negative date ranges?
@@ -518,7 +514,7 @@
 </script>
 
 <style lang="scss">
-.so-example {
+.so-visualizer {
   padding: 24px 12px;
 }
 
@@ -528,6 +524,40 @@ header {
   h3 {
     flex: 0 0 auto;
     margin: 0 0 0 9px;
+  }
+  .primary-tag-dropdown {
+    display: inline-block;
+    position: relative;
+    i {
+      font-size: 0.7em;
+      position: relative;
+      top: -3px;
+      right: -3px;
+    }
+    .tag, li {
+      padding: 4px 10px;
+    }
+    menu {
+      position: absolute;
+      z-index: 10;
+      top: 25px;
+      left: 0;
+      margin: 0;
+      padding: 0;
+      list-style-type: none;
+      border-radius: 4px;
+      overflow: hidden;
+      box-shadow: 0px 1px 4px rgb(0 0 0 / 30%);
+      li {
+        cursor: pointer;
+        color: #39739d;
+        background-color: #e1ecf4;
+        &:hover {
+          color: #106098;
+          background-color: #c5dbec;
+        }
+      }
+    }
   }
   .questions-count {
     flex: 1 1 auto;
@@ -618,41 +648,6 @@ header {
   }
 }
 
-.primary-tag-dropdown {
-  display: inline-block;
-  position: relative;
-  i {
-    font-size: 0.7em;
-    position: relative;
-    top: -3px;
-    right: -3px;
-  }
-  .tag, li {
-    padding: 4px 10px;
-  }
-  menu {
-    position: absolute;
-    z-index: 10;
-    top: 25px;
-    left: 0;
-    margin: 0;
-    padding: 0;
-    list-style-type: none;
-    border-radius: 4px;
-    overflow: hidden;
-    box-shadow: 0px 1px 4px rgb(0 0 0 / 30%);
-    li {
-      cursor: pointer;
-      color: #39739d;
-      background-color: #e1ecf4;
-      &:hover {
-        color: #106098;
-        background-color: #c5dbec;
-      }
-    }
-  }
-}
-
 .filters {
   margin: 0 0 12px;
   .filters-row {
@@ -732,7 +727,7 @@ header {
       }
     }
   }
-  .filterTagsWrapper.collapsed {
+  .filter-tags-wrapper.collapsed {
     max-height: 80px;
     overflow: hidden;
   }
@@ -772,6 +767,7 @@ svg.timeline {
   margin: 0 0 20px 0;
   overflow: visible;
 }
+
 .questions-table {
   border-collapse: collapse;
   width: 100%;
