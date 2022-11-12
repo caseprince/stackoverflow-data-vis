@@ -49,7 +49,7 @@
             id="start-date"
             type="date"
             min="2008-01-01"
-            :max="new Date().toISOString().split('T')[0]"
+            :max="toISOLocalDate(new Date())"
             :value="router.currentRoute.value.query.from_date"
             @input="setFromDate"
           >
@@ -58,7 +58,7 @@
             id="end-date"
             type="date"
             min="2008-01-01"
-            :max="new Date().toISOString().split('T')[0]"
+            :max="toISOLocalDate(new Date())"
             :value="router.currentRoute.value.query.to_date"
             @input="setToDate"
           >
@@ -476,6 +476,7 @@
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
+
   const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
     const { [param]: _oldParam, ...query } = router.currentRoute.value.query
     if (value) {
@@ -491,6 +492,12 @@
     }
   }
 
+  function toISOLocalDate(d: Date): string {
+    const z = (n: number): string => `0${n}`.slice(-2)
+    return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`
+  }
+
+  // TODO: Prevent/warn on negative date ranges?
   function setFromDate(event: Event): void {
     const fromDate = (event.target as HTMLInputElement).value
     updateOrRemoveQueryParam('from_date', fromDate)
