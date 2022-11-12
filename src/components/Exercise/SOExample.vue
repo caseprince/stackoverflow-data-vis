@@ -386,7 +386,18 @@
       .attr('height', d => y(0) - y(d.length))
       .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
       .on('mouseover', (_event, d) => {
-        tooltip.select('.content').html(`${d.length} Questions<br/>over ${ moment.duration(moment(d.x1).diff(moment(d.x0))).humanize()} `)
+        const binIndex = bins.indexOf(d)
+        let ttContentTransform = 'none'
+        if (binIndex === bins.length - 1) {
+          ttContentTransform ='translate(calc(-50% + 10px), 0)'
+        } else if (binIndex === 0) {
+          ttContentTransform ='translate(calc(50% - 10px), 0)'
+        }
+        tooltip
+          .select('.content')
+          .html(`${d.length} Questions<br/>over ${ moment.duration(moment(d.x1).diff(moment(d.x0))).humanize()}`)
+          // Nudge left-most and right-most tooltips towards center to prevent tooltips overflowing screen
+          .style('transform', ttContentTransform)
         tooltip
           .style('opacity', .9)
           .style('left', `${Math.round(x(d.x0)) + 1 + (Math.round(Math.max(0, x(d.x1) - x(d.x0))) -1) /2 }px`)
@@ -836,16 +847,16 @@ div.timeline {
 .d3-tooltip {
   opacity: 0;
   position: absolute;
-  line-height: 1;
-  padding: 6px;
-  background: rgb(30, 30, 30);
-  color: #fff;
-  border-radius: 4px;
-  font-size: 12px;
   // top center positioning
   transform: translate(-50%, calc(-100% - 6px));
   pointer-events: none;
   .content {
+    line-height: 1;
+    padding: 6px;
+    background: rgb(30, 30, 30);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 12px;
     white-space: nowrap;
   }
   .arrow {
