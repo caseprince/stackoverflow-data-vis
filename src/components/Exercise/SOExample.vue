@@ -367,30 +367,24 @@
 
     const y = d3
       .scaleLinear()
-      .domain([0, d3.max(bins, (d) =>  d.length)],
-
-      )
+      .domain([0, d3.max(bins, (d) =>  d.length)])
       .rangeRound([height, 0])
 
     g.append('g')
       .attr('transform', `translate(0,${  height  })`)
       .call(d3.axisBottom(x).ticks(17))
 
-    g.append('g')
-      .attr('fill', '#a5c9e6')
-      .selectAll('rect')
+    const bars = g.selectAll('.bar')
       .data(bins)
-      .join('rect')
-      .attr('x', d => Math.round(x(d.x0)) + 1)
-      .attr('y', d => y(d.length))
-      .attr('height', d => y(0) - y(d.length))
-      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
+      .enter()
+      .append('g')
+      .classed('bar', true)
       .on('mouseover', (_event, d) => {
         const binIndex = bins.indexOf(d)
         let ttContentTransform = 'none'
-        if (binIndex === bins.length - 1) {
+        if (binIndex >= bins.length - 2) {
           ttContentTransform ='translate(calc(-50% + 10px), 0)'
-        } else if (binIndex === 0) {
+        } else if (binIndex <= 1) {
           ttContentTransform ='translate(calc(50% - 10px), 0)'
         }
         tooltip
@@ -404,6 +398,20 @@
           .style('top', `${y(d.length)}px`)
       })
       .on('mouseout', () => tooltip.style('opacity', 0))
+
+    bars.append('rect')
+      .attr('fill', '#a5c9e6')
+      .attr('x', d => Math.round(x(d.x0)) + 1)
+      .attr('y', d => y(d.length))
+      .attr('height', d => y(0) - y(d.length))
+      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
+
+    bars.append('rect')
+      .attr('fill', 'rgba(255, 0, 0, 0)')
+      .attr('x', d => Math.round(x(d.x0)) + 1)
+      .attr('y', d => 0)
+      .attr('height', d => y(0))
+      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -477,6 +485,7 @@
   }
 
   // Adds or removes a tag from currentRoute's 'tags' query params
+  // TODO: Alphabetize tags param to optimize caching?
   function toggleTag(tag: string): void {
     const [qTags, query] = getTagsAndTaglessQuery()
     if (qTags.includes(tag)) {
