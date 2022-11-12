@@ -81,7 +81,13 @@
       </div>
     </div>
 
-    <svg v-if="questions.length >= 2" class="timeline" width="100%" height="25px"><g /></svg>
+    <div v-if="questions.length >= 2" class="timeline">
+      <div class="d3-tooltip">
+        <div class="content" />
+        <div class="arrow" />
+      </div>
+      <svg class="timeline" width="100%" height="25px"><g /></svg>
+    </div>
 
     <table class="questions-table">
       <tr>
@@ -348,6 +354,8 @@
     const bounds = timeLineSvg.node().getBoundingClientRect()
     const { width, height } = bounds
 
+    const tooltip = d3.select('div.timeline .d3-tooltip')
+
     const g = timeLineSvg.append('g')
 
     const x = d3
@@ -377,8 +385,14 @@
       .attr('y', d => y(d.length))
       .attr('height', d => y(0) - y(d.length))
       .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
-      .append('svg:title')
-      .text(d => d.length)
+      .on('mouseover', (_event, d) => {
+        tooltip.select('.content').html(`${d.length} Questions<br/>over ${ moment.duration(moment(d.x1).diff(moment(d.x0))).humanize()} `)
+        tooltip
+          .style('opacity', .9)
+          .style('left', `${Math.round(x(d.x0)) + 1 + (Math.round(Math.max(0, x(d.x1) - x(d.x0))) -1) /2 }px`)
+          .style('top', `${y(d.length)}px`)
+      })
+      .on('mouseout', () => tooltip.style('opacity', 0))
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -814,5 +828,39 @@ svg.timeline {
   margin: 20px;
   font-style: italic;
   color: #898989;
+}
+
+div.timeline {
+  position: relative;
+}
+.d3-tooltip {
+  opacity: 0;
+  position: absolute;
+  line-height: 1;
+  padding: 6px;
+  background: rgb(30, 30, 30);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  // top center positioning
+  transform: translate(-50%, calc(-100% - 6px));
+  pointer-events: none;
+  .content {
+    white-space: nowrap;
+  }
+  .arrow {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    &:before {
+      position: absolute;
+      content: "";
+      border-color: transparent;
+      border-style: solid;
+      border-width: 0.4rem 0.4rem 0;
+      border-top-color: rgb(30, 30, 30);
+      transform: translate(-50%, 0);
+    }
+  }
 }
 </style>
