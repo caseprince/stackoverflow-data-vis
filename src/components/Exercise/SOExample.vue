@@ -145,6 +145,7 @@
   import { InputHTMLAttributes, onBeforeUnmount, onMounted,  onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
+import rectCollide from '@/utils/rectCollide'
 
   type Question = {
     accepted_answer_id?: number,
@@ -344,17 +345,23 @@
 
 
   type Node = { id: string, group: number }
+  // type Link = { source: number, target: number, value: number }
   type Link = { source: string, target: string, value: number }
   type Graph = { nodes: Node[], links: Link[] }
 
   const getTagsGraph = (): Graph => {
     const tagNodes: Node[] = []
+    questions.forEach(question => {
+      question.tags.forEach(tag => {
+        if (!tagNodes.find(t => t.id === tag)) {
+          tagNodes.push({ id: tag, group: 1 })
+        }
+      })
+    })
+
     const tagLinks: Link[] = []
     questions.forEach(question => {
       question.tags.forEach(tag1 => {
-        if (!tagNodes.find(t => t.id === tag1)) {
-          tagNodes.push({ id: tag1, group: 1 })
-        }
         question.tags.forEach(tag2 => {
           if (tag1 !== tag2) {
             const existingLink = tagLinks.find(
@@ -370,6 +377,11 @@
                 target: tag2,
                 value: 1,
               })
+              // tagLinks.push({
+              //   source: tagNodes.indexOf(tagNodes.find(tag => tag.id === tag1)),
+              //   target: tagNodes.indexOf(tagNodes.find(tag => tag.id === tag2)),
+              //   value: 1,
+              // })
             }
           }
         })
@@ -390,24 +402,27 @@
     console.log(+svg.attr('height'))
     svg.attr('viewBox', [-width / 2, -height / 2, width, height])
 
-    const simulation = d3.forceSimulation()
-      .force('charge', d3.forceManyBody().strength(-900))
-      .force('link', d3.forceLink().id(d => d.id).distance(50))
-      .force('x', d3.forceX())
-      .force('y', d3.forceY())
-      .on('tick', ticked)
-      //.alphaDecay(0.01)
+    const collisionForce = rectCollide().size([120, 22])
 
     let g = svg.append('g'), // .attr('transform', `translate(${  width / 2  },${  height / 2  })`),
         link = g.append('g').classed('links', true).selectAll('.link'),
         node = g.append('g').classed('nodes', true).selectAll('.node')
 
+    const simulation = d3.forceSimulation()
+      .force('charge', d3.forceManyBody().strength(-900))
+      .force('link', d3.forceLink().id(d => d.id).distance(50))
+      .force('collision', collisionForce)
+      .force('x', d3.forceX())
+      .force('y', d3.forceY())
+      .on('tick', ticked)
+      //.alphaDecay(0.01
+
     function ticked(): void {
       const radius = 280
       node.attr('transform', d => {
-        const yClamped = Math.min(Math.max(d.y, -radius), radius)
-        d.y = yClamped
-        return `translate(${d.x},${yClamped})`
+         const yClamped = Math.min(Math.max(d.y, -radius), radius)
+         d.y = yClamped
+        return `translate(${d.x},${d.y})`
       })
       link.attr('x1', d => d.source.x)
         .attr('y1', d => d.source.y)
@@ -428,6 +443,15 @@
         const old = new Map(node.data().map(d => [d.id, d]))
         nodes = nodes.map(d => Object.assign(old.get(d.id) || {}, d))
         links = links.map(d => Object.assign({}, d))
+
+        // const layout = cola.d3adaptor(d3)
+        //   .size([0, 0])
+        //   .nodes(nodes)
+        //   .links(links)
+        //   //.jaccardLinkLengths(40, 0.7)
+        //   .linkDistance(d => d.value * 100)
+        //   .avoidOverlaps(true)
+        //   .start(30);
 
         simulation.nodes(nodes)
         simulation.force('link').links(links)
@@ -472,6 +496,10 @@
       },
     })
   }
+
+
+
+
 
   function drawHistogram(): void  {
     d3.selectAll('svg.timeline > *').remove()
@@ -821,6 +849,13 @@ header {
     color: #106098;
     background-color: #c5dbec;
   }
+  &.active {
+    color: white;
+    background-color: #3e7c9d;
+    &:hover {
+      background-color: #236182;
+    }
+  }
 }
 
 .filters {
@@ -913,10 +948,6 @@ header {
     padding: 2px 2px 8px;
     .tag {
       font-size: 12px;
-      &.active {
-        color: white;
-        background-color: #3e7c9d;
-      }
     }
   }
   hr {
@@ -1040,14 +1071,6 @@ div.timeline {
     font-size: 12px;
     fill: #39739d;
   }
-  g.active {
-    rect {
-      fill: #3e7c9d;
-    }
-    text {
-      fill: white;
-    }
-  }
   g:hover {
     cursor: pointer;
     rect {
@@ -1055,6 +1078,19 @@ div.timeline {
     }
     text {
       fill: 106098;
+    }
+  }
+  g.active {
+    rect {
+      fill: #3e7c9d;
+    }
+    text {
+      fill: white;
+    }
+    &:hover {
+      rect {
+        fill: #236182;
+      }
     }
   }
 }
