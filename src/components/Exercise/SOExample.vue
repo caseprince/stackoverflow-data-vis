@@ -345,7 +345,6 @@ import rectCollide from '@/utils/rectCollide'
 
 
   type Node = { id: string, group: number }
-  // type Link = { source: number, target: number, value: number }
   type Link = { source: string, target: string, value: number }
   type Graph = { nodes: Node[], links: Link[] }
 
@@ -377,11 +376,6 @@ import rectCollide from '@/utils/rectCollide'
                 target: tag2,
                 value: 1,
               })
-              // tagLinks.push({
-              //   source: tagNodes.indexOf(tagNodes.find(tag => tag.id === tag1)),
-              //   target: tagNodes.indexOf(tagNodes.find(tag => tag.id === tag2)),
-              //   value: 1,
-              // })
             }
           }
         })
@@ -443,15 +437,6 @@ import rectCollide from '@/utils/rectCollide'
         const old = new Map(node.data().map(d => [d.id, d]))
         nodes = nodes.map(d => Object.assign(old.get(d.id) || {}, d))
         links = links.map(d => Object.assign({}, d))
-
-        // const layout = cola.d3adaptor(d3)
-        //   .size([0, 0])
-        //   .nodes(nodes)
-        //   .links(links)
-        //   //.jaccardLinkLengths(40, 0.7)
-        //   .linkDistance(d => d.value * 100)
-        //   .avoidOverlaps(true)
-        //   .start(30);
 
         simulation.nodes(nodes)
         simulation.force('link').links(links)
