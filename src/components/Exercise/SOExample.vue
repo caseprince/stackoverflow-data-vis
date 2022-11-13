@@ -81,6 +81,8 @@
       </div>
     </div>
 
+    <svg class="tags-graph" width="100%" height="600"><g /></svg>
+
     <div v-if="questions.length >= 2" class="timeline">
       <div class="d3-tooltip">
         <div class="content" />
@@ -333,6 +335,142 @@
     })
 
     drawHistogram()
+
+    if (!chart) {
+      drawTagsGraph()
+    }
+    chart.update(query)
+  } // End loadQuestions
+
+
+  type Node = { id: string, group: number }
+  type Link = { source: string, target: string, value: number }
+  type Graph = { nodes: Node[], links: Link[] }
+
+  const getTagsGraph = (): Graph => {
+    const tagNodes: Node[] = []
+    const tagLinks: Link[] = []
+    questions.forEach(question => {
+      question.tags.forEach(tag1 => {
+        if (!tagNodes.find(t => t.id === tag1)) {
+          tagNodes.push({ id: tag1, group: 1 })
+        }
+        question.tags.forEach(tag2 => {
+          if (tag1 !== tag2) {
+            const existingLink = tagLinks.find(
+              // link direction is arbitrary so we need to test both directions
+              link => link.source === tag1 && link.target === tag2 ||
+                link.source === tag2 && link.target === tag1,
+            )
+            if (existingLink) {
+              existingLink.value++
+            } else {
+              tagLinks.push({
+                source: tag1,
+                target: tag2,
+                value: 1,
+              })
+            }
+          }
+        })
+      })
+    })
+    return {
+      nodes: tagNodes,
+      links: tagLinks,
+    }
+  }
+
+  let chart: any
+  const drawTagsGraph = (): void => {
+
+    var svg = d3.select('svg.tags-graph')
+    const width = 500
+    const height = +svg.attr('height')
+    console.log(+svg.attr('height'))
+    svg.attr('viewBox', [-width / 2, -height / 2, width, height])
+
+    const simulation = d3.forceSimulation()
+      .force('charge', d3.forceManyBody().strength(-900))
+      .force('link', d3.forceLink().id(d => d.id).distance(50))
+      .force('x', d3.forceX())
+      .force('y', d3.forceY())
+      .on('tick', ticked)
+      //.alphaDecay(0.01)
+
+    let g = svg.append('g'), // .attr('transform', `translate(${  width / 2  },${  height / 2  })`),
+        link = g.append('g').classed('links', true).selectAll('.link'),
+        node = g.append('g').classed('nodes', true).selectAll('.node')
+
+    function ticked(): void {
+      const radius = 280
+      node.attr('transform', d => {
+        const yClamped = Math.min(Math.max(d.y, -radius), radius)
+        d.y = yClamped
+        return `translate(${d.x},${yClamped})`
+      })
+      link.attr('x1', d => d.source.x)
+        .attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x)
+        .attr('y2', d => d.target.y)
+    }
+
+    // Terminate the force layout when this cell re-runs.
+    // invalidation.then(() => simulation.stop())
+
+    chart = Object.assign(svg.node(), {
+      update(query: LocationQuery = router.currentRoute.value.query) {
+
+        let { nodes, links } = getTagsGraph()
+
+        // Make a shallow copy to protect against mutation, while
+        // recycling old nodes to preserve position and velocity.
+        const old = new Map(node.data().map(d => [d.id, d]))
+        nodes = nodes.map(d => Object.assign(old.get(d.id) || {}, d))
+        links = links.map(d => Object.assign({}, d))
+
+        simulation.nodes(nodes)
+        simulation.force('link').links(links)
+        simulation.alpha(1).restart()
+
+        node = node
+          .data(nodes, d => d.id)
+          .join(enter => {
+            let e = enter
+            const g = e.append('g').on('click', (_event, d) => console.log(toggleTag(d.id)))
+
+            const rect = g.append('rect').attr('height', 22).attr('y', -12).attr('rx', 4).attr('ry', 4)
+            g.append('text')
+              .text((d) => {
+                return d.id
+              })
+              .attr('x', function(d) {
+                return -this.getBBox().width / 2
+              })
+              .attr('y', 3)
+              .attr('text-anchor', 'start')
+
+            rect
+              .attr('width', function(d) {
+                return this.parentNode.getBBox().width + 20
+              })
+              .attr('x', function(d) {
+                return -this.getBBox().width / 2
+              })
+
+            return g
+          })
+
+        node.classed('active', d => {
+          const [qTags] = getTagsAndTaglessQuery(query)
+          return qTags.includes(d.id) || d.id === query.primary_tag || !query.primary_tag && d.id === PREFECT
+        })
+
+        link = link
+          .data(links, d => `${d.source.id}\t${d.target.id}`)
+          .join('line')
+      },
+    })
   }
 
   function drawHistogram(): void  {
@@ -355,7 +493,6 @@
     const { width, height } = bounds
 
     const tooltip = d3.select('div.timeline .d3-tooltip')
-
     const g = timeLineSvg.append('g')
 
     const x = d3
@@ -406,6 +543,7 @@
       .attr('height', d => y(0) - y(d.length))
       .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
 
+    // Add a full height transparent rect to each histogram bar to make hovering short bars easier
     bars.append('rect')
       .attr('fill', 'rgba(255, 0, 0, 0)')
       .attr('x', d => Math.round(x(d.x0)) + 1)
@@ -424,8 +562,10 @@
     }
   }
 
+  // Changes or removes primary tag query param and resets 2ndary tags
   function changePrimaryTag(primaryTag: string): void {
-    const { primary_tag: _primary_tag, ...query } = router.currentRoute.value.query
+    const [_qTags, oldQuery] = getTagsAndTaglessQuery()
+    const { primary_tag: _primary_tag, ...query } = oldQuery
     if (primaryTag !== PREFECT) {
       query.primary_tag = primaryTag
     }
@@ -555,6 +695,7 @@
 header {
   display: flex;
   margin-bottom: 20px;
+  height: 25px;
   h3 {
     flex: 0 0 auto;
     margin: 0 0 0 9px;
@@ -880,6 +1021,40 @@ div.timeline {
       border-width: 0.4rem 0.4rem 0;
       border-top-color: rgb(30, 30, 30);
       transform: translate(-50%, 0);
+    }
+  }
+}
+
+.links line {
+  stroke: #999;
+  stroke-opacity: 0.6;
+}
+
+.nodes {
+  rect {
+    stroke: #fff;
+    stroke-width: 1.5px;
+    fill: #e1ecf4;
+  }
+  text {
+    font-size: 12px;
+    fill: #39739d;
+  }
+  g.active {
+    rect {
+      fill: #3e7c9d;
+    }
+    text {
+      fill: white;
+    }
+  }
+  g:hover {
+    cursor: pointer;
+    rect {
+      fill: #c5dbec;
+    }
+    text {
+      fill: 106098;
     }
   }
 }
