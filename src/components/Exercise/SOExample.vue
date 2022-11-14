@@ -23,7 +23,7 @@
 
     <div class="filters">
       <div class="filters-row">
-        <div>
+        <div class="tag-filters-header">
           <h4>Filter by {{ tags.length }} additional tags:</h4>
           <div class="search-tags">
             <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
@@ -81,7 +81,7 @@
       </div>
     </div>
 
-    <svg class="tags-graph" width="100%" height="600"><g /></svg>
+    <svg class="tags-graph" width="100%" height="500"><g /></svg>
 
     <div v-if="questions.length >= 2" class="timeline">
       <div class="d3-tooltip">
@@ -209,7 +209,8 @@ import rectCollide from '@/utils/rectCollide'
   onMounted(async () => {
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
-    window.addEventListener('resize', drawHistogram)
+    window.addEventListener('resize', onResize)
+    updateGraphWidth();
   })
 
   onBeforeRouteUpdate(async to => {
@@ -221,14 +222,30 @@ import rectCollide from '@/utils/rectCollide'
 
   onUpdated(() => {
     state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
-    // TODO: skip rendering if screen width not changed
+    // TODO: skip rendering if screen width not changed?
     drawHistogram()
   })
 
   onBeforeUnmount(() => {
     window.removeEventListener('scroll', onScroll)
-    window.addEventListener('resize', drawHistogram)
+    window.removeEventListener('resize', onResize)
   })
+
+  let graphWidth = 1000
+  const updateGraphWidth = (): void => {
+    var svg = d3.select('svg.tags-graph')
+    graphWidth = (svg.node() as Element).getBoundingClientRect().width;
+    console.log('graphWidth: '+graphWidth)
+    const height = +svg.attr('height')
+    const NUDGE_HORIZ = 0
+    svg.attr('viewBox', [-graphWidth / 2 + NUDGE_HORIZ, -height / 2, graphWidth + NUDGE_HORIZ, height])
+  }
+
+  const onResize = (): void => {
+    drawHistogram()
+    updateGraphWidth()
+    simulation && simulation.alpha(1).restart()
+  }
 
   const onScroll = (): void => {
     if (window.innerHeight + Math.ceil(window.pageYOffset) >= document.body.offsetHeight) {
@@ -267,15 +284,14 @@ import rectCollide from '@/utils/rectCollide'
 
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
     state.loading = true
-    // TODO: Date filters, sort
+
     const activeTags = query.tags ? (query.tags as string).split(';') : []
-    const newest = !query.oldest
     activeTags.unshift(query.primary_tag as string || PREFECT)
 
     const apiParams: any = {
       page: String(page),
       pagesize: String(PAGESIZE),
-      order: newest ? 'desc' : 'asc',
+      order: !query.oldest ? 'desc' : 'asc',
       sort: 'creation',
       site: 'stackoverflow',
       tagged: activeTags.join(';'),
@@ -337,27 +353,28 @@ import rectCollide from '@/utils/rectCollide'
 
     drawHistogram()
 
-    if (!chart) {
+    if (!graph) {
       drawTagsGraph()
     }
-    chart.update(query)
+    graph.update(query)
   } // End loadQuestions
 
 
-  type Node = { id: string, group: number }
-  type Link = { source: string, target: string, value: number }
-  type Graph = { nodes: Node[], links: Link[] }
+  type Node = { id: string, width: number}
+  type Link = { source: string, target: string, weight: number }
+  type Graph = { nodes: Node[], links: Link[], maxWeight: number }
 
   const getTagsGraph = (): Graph => {
     const tagNodes: Node[] = []
     questions.forEach(question => {
       question.tags.forEach(tag => {
         if (!tagNodes.find(t => t.id === tag)) {
-          tagNodes.push({ id: tag, group: 1 })
+          tagNodes.push({ id: tag })
         }
       })
     })
 
+    let maxWeight = 0
     const tagLinks: Link[] = []
     questions.forEach(question => {
       question.tags.forEach(tag1 => {
@@ -369,12 +386,13 @@ import rectCollide from '@/utils/rectCollide'
                 link.source === tag2 && link.target === tag1,
             )
             if (existingLink) {
-              existingLink.value++
+              existingLink.weight++
+              maxWeight = Math.max(maxWeight, existingLink.weight)
             } else {
               tagLinks.push({
                 source: tag1,
                 target: tag2,
-                value: 1,
+                weight: 1,
               })
             }
           }
@@ -384,53 +402,55 @@ import rectCollide from '@/utils/rectCollide'
     return {
       nodes: tagNodes,
       links: tagLinks,
+      maxWeight
     }
   }
 
-  let chart: any
+  let graph: any
+  let simulation: d3.Simulation<d3.SimulationNodeDatum, undefined>
   const drawTagsGraph = (): void => {
 
-    var svg = d3.select('svg.tags-graph')
-    const width = 500
+    const svg = d3.select('svg.tags-graph')
     const height = +svg.attr('height')
-    console.log(+svg.attr('height'))
-    svg.attr('viewBox', [-width / 2, -height / 2, width, height])
 
-    const collisionForce = rectCollide().size([120, 22])
+    const collisionForce = rectCollide().size(d => {
+      return [d.width + 34, 28]
+    })
 
-    let g = svg.append('g'), // .attr('transform', `translate(${  width / 2  },${  height / 2  })`),
+    let g = svg.append('g'),
         link = g.append('g').classed('links', true).selectAll('.link'),
         node = g.append('g').classed('nodes', true).selectAll('.node')
 
-    const simulation = d3.forceSimulation()
-      .force('charge', d3.forceManyBody().strength(-900))
-      .force('link', d3.forceLink().id(d => d.id).distance(50))
-      .force('collision', collisionForce)
+    simulation = d3.forceSimulation()
+      .force('charge', d3.forceManyBody().strength(-600))
+      .force('link', d3.forceLink().id(d => d.id).distance(100))
       .force('x', d3.forceX())
       .force('y', d3.forceY())
       .on('tick', ticked)
-      //.alphaDecay(0.01
+      .alphaDecay(0.0228)
 
     function ticked(): void {
-      const radius = 280
+      const radiusY = height / 2 - 20
+      const radiusX = Math.round(graphWidth / 2) - 10
+      console.log(graphWidth, radiusX)
       node.attr('transform', d => {
-         const yClamped = Math.min(Math.max(d.y, -radius), radius)
+         const yClamped = Math.min(Math.max(d.y, -radiusY), radiusY)
          d.y = yClamped
+         const xClamped = Math.min(Math.max(d.x, -radiusX + (d.width/2)), radiusX - (d.width/2))
+         d.x = xClamped
         return `translate(${d.x},${d.y})`
       })
+
       link.attr('x1', d => d.source.x)
         .attr('y1', d => d.source.y)
         .attr('x2', d => d.target.x)
         .attr('y2', d => d.target.y)
     }
 
-    // Terminate the force layout when this cell re-runs.
-    // invalidation.then(() => simulation.stop())
-
-    chart = Object.assign(svg.node(), {
+    graph = Object.assign(svg.node(), {
       update(query: LocationQuery = router.currentRoute.value.query) {
 
-        let { nodes, links } = getTagsGraph()
+        let { nodes, links, maxWeight } = getTagsGraph()
 
         // Make a shallow copy to protect against mutation, while
         // recycling old nodes to preserve position and velocity.
@@ -446,7 +466,11 @@ import rectCollide from '@/utils/rectCollide'
           .data(nodes, d => d.id)
           .join(enter => {
             let e = enter
-            const g = e.append('g').on('click', (_event, d) => console.log(toggleTag(d.id)))
+            const g = e.append('g').on('click', (_event, d) => {
+              if ((query.primary_tag && d.id !== query.primary_tag) || (!query.primary_tag && d.id !== PREFECT)) {
+                toggleTag(d.id)
+              }
+            })
 
             const rect = g.append('rect').attr('height', 22).attr('y', -12).attr('rx', 4).attr('ry', 4)
             g.append('text')
@@ -461,7 +485,9 @@ import rectCollide from '@/utils/rectCollide'
 
             rect
               .attr('width', function(d) {
-                return this.parentNode.getBBox().width + 20
+                // Store newly added text node width in datum for use in collision detection
+                d.width = this.parentNode?.getBBox().width
+                return this.parentNode?.getBBox().width + 20
               })
               .attr('x', function(d) {
                 return -this.getBBox().width / 2
@@ -469,6 +495,8 @@ import rectCollide from '@/utils/rectCollide'
 
             return g
           })
+
+        simulation.force('collision', collisionForce)
 
         node.classed('active', d => {
           const [qTags] = getTagsAndTaglessQuery(query)
@@ -478,13 +506,11 @@ import rectCollide from '@/utils/rectCollide'
         link = link
           .data(links, d => `${d.source.id}\t${d.target.id}`)
           .join('line')
+          .attr('opacity', 0.5)
+          .attr('stroke-width', d => 1 + (d.weight / maxWeight) * 10)
       },
     })
   }
-
-
-
-
 
   function drawHistogram(): void  {
     d3.selectAll('svg.timeline > *').remove()
@@ -585,10 +611,9 @@ import rectCollide from '@/utils/rectCollide'
     router.push({ path: router.currentRoute.value.path, query })
   }
 
-
   // TAG FILTERS ~~~~~~~~~~~~~~~~~~~~~~~~
 
-  // Strips (and parses) tags param out of current query and returns destructured ...rest
+  // Strips out (and parses) tags param from query and returns destructured ...rest
   const getTagsAndTaglessQuery = (query: LocationQuery = router.currentRoute.value.query): [string[], LocationQuery] => {
     const { tags : tagsString, ...newQuery } = query
     return [tagsString ? (tagsString as string).split(';') : [], newQuery]
@@ -848,13 +873,17 @@ header {
   .filters-row {
     display: flex;
     justify-content: space-between;
+    margin-bottom: 7px
   }
   h4 {
     display: inline-block;
-    margin: 0 0 12px 2px;
+    margin: 0 10px 5px 2px;
   }
   label {
     color: #878787;
+  }
+  .tag-filters-header {
+    flex: 1 1 1px;
   }
   .date-filters {
     display: flex;
@@ -876,7 +905,6 @@ header {
     }
   }
   .search-tags {
-    margin-left: 10px;
     display: inline-block;
     position: relative;
     border: 1px solid #cccccc;
