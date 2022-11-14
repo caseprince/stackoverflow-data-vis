@@ -235,7 +235,6 @@ import rectCollide from '@/utils/rectCollide'
   const updateGraphWidth = (): void => {
     var svg = d3.select('svg.tags-graph')
     graphWidth = (svg.node() as Element).getBoundingClientRect().width;
-    console.log('graphWidth: '+graphWidth)
     const height = +svg.attr('height')
     const NUDGE_HORIZ = 0
     svg.attr('viewBox', [-graphWidth / 2 + NUDGE_HORIZ, -height / 2, graphWidth + NUDGE_HORIZ, height])
@@ -364,12 +363,17 @@ import rectCollide from '@/utils/rectCollide'
   type Link = { source: string, target: string, weight: number }
   type Graph = { nodes: Node[], links: Link[], maxWeight: number }
 
-  const getTagsGraph = (): Graph => {
+  const getTagsGraph = (query: LocationQuery): Graph => {
     const tagNodes: Node[] = []
     questions.forEach(question => {
       question.tags.forEach(tag => {
         if (!tagNodes.find(t => t.id === tag)) {
-          tagNodes.push({ id: tag })
+          if (tag === query.primary_tag || !query.primary_tag && tag === PREFECT) {
+            // Put primary tag at index 0 so we can force-center it
+            tagNodes.unshift({ id: tag })
+          } else {
+            tagNodes.push({ id: tag })
+          }
         }
       })
     })
@@ -432,12 +436,16 @@ import rectCollide from '@/utils/rectCollide'
     function ticked(): void {
       const radiusY = height / 2 - 20
       const radiusX = Math.round(graphWidth / 2) - 10
-      console.log(graphWidth, radiusX)
-      node.attr('transform', d => {
-         const yClamped = Math.min(Math.max(d.y, -radiusY), radiusY)
-         d.y = yClamped
-         const xClamped = Math.min(Math.max(d.x, -radiusX + (d.width/2)), radiusX - (d.width/2))
-         d.x = xClamped
+      node.attr('transform', (d, i) => {
+        if (i === 0) {
+          // Lock primary node to center/origin
+          d.y = d.x = 0
+          return `translate(${d.x},${d.y})`
+        }
+        const yClamped = Math.min(Math.max(d.y, -radiusY), radiusY)
+        d.y = yClamped
+        const xClamped = Math.min(Math.max(d.x, -radiusX + (d.width/2)), radiusX - (d.width/2))
+        d.x = xClamped
         return `translate(${d.x},${d.y})`
       })
 
@@ -450,7 +458,7 @@ import rectCollide from '@/utils/rectCollide'
     graph = Object.assign(svg.node(), {
       update(query: LocationQuery = router.currentRoute.value.query) {
 
-        let { nodes, links, maxWeight } = getTagsGraph()
+        let { nodes, links, maxWeight } = getTagsGraph(query)
 
         // Make a shallow copy to protect against mutation, while
         // recycling old nodes to preserve position and velocity.
@@ -506,7 +514,7 @@ import rectCollide from '@/utils/rectCollide'
         link = link
           .data(links, d => `${d.source.id}\t${d.target.id}`)
           .join('line')
-          .attr('opacity', 0.5)
+          .attr('opacity', d => 0.4 + (d.weight / maxWeight) * 0.4)
           .attr('stroke-width', d => 1 + (d.weight / maxWeight) * 10)
       },
     })
