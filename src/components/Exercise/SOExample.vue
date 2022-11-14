@@ -24,10 +24,10 @@
     <div class="filters">
       <div class="filters-row">
         <div class="tabs">
-        <div class="tab" :class="!state.tagsGraph && 'active'" @click="setTagGraph(false)">
+        <div class="tab" :class="!state.tagsGraphVisible && 'active'" @click="setTagGraph(false)">
           <FontAwesomeIcon :icon="['fas', 'bars']" />Tag List
         </div>
-        <div class="tab" :class="state.tagsGraph && 'active'" @click="setTagGraph(true)">
+        <div class="tab" :class="state.tagsGraphVisible && 'active'" @click="setTagGraph(true)">
           <FontAwesomeIcon :icon="['fas', 'circle-nodes']" />Tag Relationship Graph
         </div>
       </div>
@@ -74,7 +74,7 @@
           </div>
         </div>
 
-      <div v-if="!state.tagsGraph">
+      <div v-if="!state.tagsGraphVisible">
         <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'" >
           <div ref="filterTags" class="tags">
             <template v-for="tag in tags" :key="tag.name">
@@ -82,8 +82,8 @@
             </template>
           </div>
         </div>
-        <hr>
         <div v-if="state.tagsCanExpand" class="more-or-less">
+          <hr/>
           <span @click="toggleTagsExpanded">
             <span v-if="!state.tagsExpanded">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
             <span v-else>less <FontAwesomeIcon :icon="['fas', 'angle-up']" /></span>
@@ -91,7 +91,7 @@
         </div>
       </div>
 
-      <svg class="tags-graph" width="100%" height="500" v-show="state.tagsGraph"><g /></svg>
+      <svg v-if="state.tagsGraphInited" class="tags-graph" :class="!state.tagsGraphVisible && 'hidden'" width="100%" height="500" ><g /></svg>
     </div>
 
     <div v-if="questions.length >= 2" class="timeline">
@@ -200,7 +200,13 @@
     primaryTagDropdownOpen: false,
     tagsCanExpand: false,
     tagsExpanded: false,
-    tagsGraph: false,
+    // The force-directed Tags graph is initialized only once, when first displayed. After initialization its visibility
+    // is toggled with css (.hidden). This enables us to preserve the layout while switching tabs or adding/removing nodes,
+    // keeping 'jitter' to a minimum. NB: `v-show` wasn't suited to this due to the edge-case of adding nodes while the graph
+    // is hidden; node.getBBox() returns 0 when `svg { display: none }`, which breaks layout & collision detection for added nodes.
+    // https://stackoverflow.com/questions/28282295/getbbox-of-svg-when-hidden
+    tagsGraphInited: false,
+    tagsGraphVisible: false,
   })
 
   const PREFECT = 'prefect'
@@ -237,7 +243,7 @@
     // TODO: skip rendering if screen width not changed?
     drawHistogram()
 
-    if (state.tagsGraph && !graph) {
+    if (state.tagsGraphVisible && !graph) {
       updateGraphWidth();
       drawTagsGraph()
       graph.update(router.currentRoute.value.query)
@@ -439,7 +445,8 @@
   }
 
   function setTagGraph(showGraph: boolean): void {
-    state.tagsGraph = showGraph
+    state.tagsGraphInited = true
+    state.tagsGraphVisible = showGraph
   }
 
   let graph: any
@@ -1043,6 +1050,11 @@ header {
       background-color: #f2f2f2;;
     }
   }
+}
+
+svg.tags-graph.hidden {
+  height: 0px;
+  display: block;
 }
 
 svg.timeline {
