@@ -23,26 +23,20 @@
 
     <div class="filters">
       <div class="filters-row">
-        <div class="tag-filters-header">
-          <h4>Filter by {{ tags.length }} additional tags:</h4>
-          <div class="search-tags">
-            <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
-            <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
-            <menu v-if="searchTags.results.length">
-              <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
-                <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
-                  {{ tag }}
-                </li>
-              </template>
-            </menu>
-          </div>
+        <div class="tabs">
+        <div class="tab" :class="!state.tagsGraph && 'active'" @click="setTagGraph(false)">
+          <FontAwesomeIcon :icon="['fas', 'bars']" />Tag List
         </div>
+        <div class="tab" :class="state.tagsGraph && 'active'" @click="setTagGraph(true)">
+          <FontAwesomeIcon :icon="['fas', 'circle-nodes']" />Tag Relationship Graph
+        </div>
+      </div>
         <div class="date-filters">
           <h4>Date Filters:</h4>
           <div class="toggle-switch">
-            <label :class="!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(false)">newest first</label>
+            <label :class="!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(false)">newest</label>
             <div :class="!!router.currentRoute.value.query.oldest && 'on'" @click="toggleOldestFirst(!router.currentRoute.value.query.oldest)" />
-            <label :class="!!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(true)">oldest first</label>
+            <label :class="!!router.currentRoute.value.query.oldest && 'active'" @click="toggleOldestFirst(true)">oldest</label>
           </div>
           <label for="start-date">from: </label>
           <input
@@ -65,23 +59,40 @@
         </div>
       </div>
 
-      <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'">
-        <div ref="filterTags" class="tags">
-          <template v-for="tag in tags" :key="tag.name">
-            <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
-          </template>
+      <div class="tag-filters-header">
+          <h4>Filter by {{ tags.length }} additional tags:</h4>
+          <div class="search-tags">
+            <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
+            <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
+            <menu v-if="searchTags.results.length">
+              <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
+                <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
+                  {{ tag }}
+                </li>
+              </template>
+            </menu>
+          </div>
+        </div>
+
+      <div v-if="!state.tagsGraph">
+        <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'" >
+          <div ref="filterTags" class="tags">
+            <template v-for="tag in tags" :key="tag.name">
+              <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
+            </template>
+          </div>
+        </div>
+        <hr>
+        <div v-if="state.tagsCanExpand" class="more-or-less">
+          <span @click="toggleTagsExpanded">
+            <span v-if="!state.tagsExpanded">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
+            <span v-else>less <FontAwesomeIcon :icon="['fas', 'angle-up']" /></span>
+          </span>
         </div>
       </div>
-      <hr>
-      <div v-if="state.tagsCanExpand" class="more-or-less">
-        <span @click="toggleTagsExpanded">
-          <span v-if="!state.tagsExpanded">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
-          <span v-else>less <FontAwesomeIcon :icon="['fas', 'angle-up']" /></span>
-        </span>
-      </div>
-    </div>
 
-    <svg class="tags-graph" width="100%" height="500"><g /></svg>
+      <svg class="tags-graph" width="100%" height="500" v-show="state.tagsGraph"><g /></svg>
+    </div>
 
     <div v-if="questions.length >= 2" class="timeline">
       <div class="d3-tooltip">
@@ -142,10 +153,10 @@
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
   import * as d3 from 'd3'
   import moment from 'moment'
-  import { InputHTMLAttributes, onBeforeUnmount, onMounted,  onUpdated, reactive, ref } from 'vue'
+  import { InputHTMLAttributes, onBeforeUnmount, onMounted,  onRenderTracked,  onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
-import rectCollide from '@/utils/rectCollide'
+  import rectCollide from '@/utils/rectCollide'
 
   type Question = {
     accepted_answer_id?: number,
@@ -189,6 +200,7 @@ import rectCollide from '@/utils/rectCollide'
     primaryTagDropdownOpen: false,
     tagsCanExpand: false,
     tagsExpanded: false,
+    tagsGraph: false,
   })
 
   const PREFECT = 'prefect'
@@ -224,6 +236,12 @@ import rectCollide from '@/utils/rectCollide'
     state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
     // TODO: skip rendering if screen width not changed?
     drawHistogram()
+
+    if (state.tagsGraph && !graph) {
+      updateGraphWidth();
+      drawTagsGraph()
+      graph.update(router.currentRoute.value.query)
+    }
   })
 
   onBeforeUnmount(() => {
@@ -234,10 +252,12 @@ import rectCollide from '@/utils/rectCollide'
   let graphWidth = 1000
   const updateGraphWidth = (): void => {
     var svg = d3.select('svg.tags-graph')
-    graphWidth = (svg.node() as Element).getBoundingClientRect().width;
-    const height = +svg.attr('height')
-    const NUDGE_HORIZ = 0
-    svg.attr('viewBox', [-graphWidth / 2 + NUDGE_HORIZ, -height / 2, graphWidth + NUDGE_HORIZ, height])
+    if (svg.node()) {
+      graphWidth = (svg.node() as Element).getBoundingClientRect().width;
+      const height = +svg.attr('height')
+      const NUDGE_HORIZ = 0
+      svg.attr('viewBox', [-graphWidth / 2 + NUDGE_HORIZ, -height / 2, graphWidth + NUDGE_HORIZ, height])
+    }
   }
 
   const onResize = (): void => {
@@ -279,6 +299,15 @@ import rectCollide from '@/utils/rectCollide'
       sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
     }
     return data
+  }
+
+  // Updates query param or removes it if value if falsey
+  const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
+    const { [param]: _oldParam, ...query } = router.currentRoute.value.query
+    if (value) {
+      query[param] = String(value)
+    }
+    router.push({ path: router.currentRoute.value.path, query })
   }
 
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
@@ -352,10 +381,9 @@ import rectCollide from '@/utils/rectCollide'
 
     drawHistogram()
 
-    if (!graph) {
-      drawTagsGraph()
+    if (graph) {
+      graph.update(query)
     }
-    graph.update(query)
   } // End loadQuestions
 
 
@@ -410,10 +438,15 @@ import rectCollide from '@/utils/rectCollide'
     }
   }
 
+  function setTagGraph(showGraph: boolean): void {
+    state.tagsGraph = showGraph
+  }
+
   let graph: any
   let simulation: d3.Simulation<d3.SimulationNodeDatum, undefined>
   const drawTagsGraph = (): void => {
 
+    d3.selectAll('svg.tags-graph > *').remove()
     const svg = d3.select('svg.tags-graph')
     const height = +svg.attr('height')
 
@@ -434,7 +467,7 @@ import rectCollide from '@/utils/rectCollide'
       .alphaDecay(0.0228)
 
     function ticked(): void {
-      const radiusY = height / 2 - 20
+      const radiusY = height / 2 - 13
       const radiusX = Math.round(graphWidth / 2) - 10
       node.attr('transform', (d, i) => {
         if (i === 0) {
@@ -692,16 +725,6 @@ import rectCollide from '@/utils/rectCollide'
 
   // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
 
-
-  // Updates query param or removes it if value if falsey
-  const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
-    const { [param]: _oldParam, ...query } = router.currentRoute.value.query
-    if (value) {
-      query[param] = String(value)
-    }
-    router.push({ path: router.currentRoute.value.path, query })
-  }
-
   function toggleOldestFirst(oldest: boolean): void {
     if (oldest !== !!router.currentRoute.value.query.oldest) {
       updateOrRemoveQueryParam('oldest', oldest)
@@ -740,7 +763,7 @@ import rectCollide from '@/utils/rectCollide'
 
 header {
   display: flex;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   height: 25px;
   h3 {
     flex: 0 0 auto;
@@ -881,7 +904,8 @@ header {
   .filters-row {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 7px
+    margin-bottom: 10px;
+    border-bottom: 1px solid #cccccc;
   }
   h4 {
     display: inline-block;
@@ -892,11 +916,13 @@ header {
   }
   .tag-filters-header {
     flex: 1 1 1px;
+    margin-bottom: 7px;
+    padding-left: 9px;
   }
   .date-filters {
     display: flex;
     align-items: center;
-    margin: 0 0 12px 2px;
+    margin: 0 10px 10px 2px;
     h4 {
       margin: 0 10px 0 0;
     }
@@ -986,6 +1012,35 @@ header {
       &:hover {
         color: #8f8f8f
       }
+    }
+  }
+}
+
+.tabs {
+  display: flex;
+  align-items: end;
+  .tab {
+    border: 1px solid #cccccc;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    background-color: #e6e6e6;
+    font-size: 14px;
+    padding: 7px 15px 6px;
+    margin-left: 10px;
+    position: relative;
+    bottom: -1px;
+    display: flex;
+    align-items: center;
+    svg {
+      margin-right: 5px;
+    }
+    &.active {
+      border-bottom: 1px solid white;
+      background-color: white;
+    }
+    &:not(.active):hover {
+      cursor: pointer;
+      background-color: #f2f2f2;;
     }
   }
 }
