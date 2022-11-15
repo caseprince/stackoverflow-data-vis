@@ -335,7 +335,15 @@
       order: !query.oldest ? 'desc' : 'asc',
       sort: 'creation',
       site: 'stackoverflow',
-      tagged: activeTags.join(';'),
+      tagged: activeTags.sort((a, b) => {
+        // sort alphabetically for best caching by url
+        if (a < b) {
+          return -1
+        } else if (a > b) {
+          return 1
+        }
+        return 0
+      }).join(';'),
     }
     const timeZoneOffsetSeconds = new Date().getTimezoneOffset() * 60
     if (query.from_date) {
@@ -398,7 +406,6 @@
       graph.update(query)
     }
   } // End loadQuestions
-
 
   type Node = { id: string, width: number}
   type Link = { source: string, target: string, weight: number }
@@ -705,7 +712,6 @@
     query.tags = qTags.join(';')
     router.push({ path: router.currentRoute.value.path, query })
   }
-
   const clearSearchTags = (): void => {
     if (searchTagsInput.value) {
       searchTagsInput.value.value = ''
@@ -1059,7 +1065,7 @@ header {
     }
     &:not(.active):hover {
       cursor: pointer;
-      background-color: #f4f4f4;;
+      background-color: #f4f4f4;
     }
   }
 }
