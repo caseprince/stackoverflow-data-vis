@@ -94,13 +94,7 @@
       <svg v-if="state.tagsGraphInited" class="tags-graph" :class="!state.tagsGraphVisible && 'hidden'" width="100%" height="500" ><g /></svg>
     </div>
 
-    <div v-if="questions.length >= 2" class="timeline">
-      <div class="d3-tooltip">
-        <div class="content" />
-        <div class="arrow" />
-      </div>
-      <svg class="timeline" width="100%" height="25px"><g /></svg>
-    </div>
+    <TimelineHistogram v-if="questions.length >= 2" :questions="[...questions]" />
 
     <table class="questions-table">
       <tr>
@@ -158,6 +152,7 @@
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
   import router from '@/router'
   import rectCollide from '@/utils/rectCollide'
+  import TimelineHistogram from '@/components/TimelineHistogram.vue'
 
   type Question = {
     accepted_answer_id?: number,
@@ -229,8 +224,6 @@
   })
 
   onBeforeRouteUpdate(async to => {
-    // Currently all route changes cause questions list to reload
-    d3.selectAll('svg.timeline > *').remove()
     questions.splice(0, questions.length)
     page = 1
     await loadQuestions(to.query)
@@ -240,9 +233,6 @@
   const filterTags = ref<HTMLElement | undefined>()
   onUpdated(() => {
     state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
-
-    // TODO: skip rendering if screen width not changed?
-    drawHistogram()
 
     if (state.tagsGraphVisible && !graph) {
       updateGraphWidth();
@@ -268,7 +258,6 @@
   }
 
   const onResize = (): void => {
-    drawHistogram()
     updateGraphWidth()
     simulation && simulation.alpha(1).restart()
   }
@@ -399,8 +388,6 @@
         tags.unshift({ name: qTag, questionIds: [], active: true })
       }
     })
-
-    drawHistogram()
 
     if (graph) {
       graph.update(query)
@@ -570,85 +557,6 @@
           .attr('stroke-width', d => 1 + (d.weight / maxWeight) * 10)
       },
     })
-  }
-
-  function drawHistogram(): void  {
-    d3.selectAll('svg.timeline > *').remove()
-    const timeLineSvg = d3.select('svg.timeline')
-    if (!timeLineSvg.node()) {
-      return
-    }
-    const data = questions.map(question => ({ date: new Date(question.creation_date * 1000) }))
-
-    // https://observablehq.com/@d3/d3-bin-time-thresholds
-    function thresholdTime(n) {
-      return (_data: any[], min: number, max: number) => {
-        return d3.scaleTime().domain([min, max]).ticks(n)
-      }
-    }
-
-    const bins = d3.bin().value(d => d.date).thresholds(thresholdTime(40))(data)
-    const bounds = timeLineSvg.node().getBoundingClientRect()
-    const { width, height } = bounds
-
-    const tooltip = d3.select('div.timeline .d3-tooltip')
-    const g = timeLineSvg.append('g')
-
-    const x = d3
-      .scaleTime()
-      .domain(
-        d3.extent(data, d => d.date),
-      )
-      .rangeRound([0, width])
-
-    const y = d3
-      .scaleLinear()
-      .domain([0, d3.max(bins, (d) =>  d.length)])
-      .rangeRound([height, 0])
-
-    g.append('g')
-      .attr('transform', `translate(0,${  height  })`)
-      .call(d3.axisBottom(x).ticks(17))
-
-    const bars = g.selectAll('.bar')
-      .data(bins)
-      .enter()
-      .append('g')
-      .classed('bar', true)
-      .on('mouseover', (_event, d) => {
-        const binIndex = bins.indexOf(d)
-        let ttContentTransform = 'none'
-        if (binIndex >= bins.length - 2) {
-          ttContentTransform ='translate(calc(-50% + 10px), 0)'
-        } else if (binIndex <= 1) {
-          ttContentTransform ='translate(calc(50% - 10px), 0)'
-        }
-        tooltip
-          .select('.content')
-          .html(`${d.length} Questions<br/>over ${ moment.duration(moment(d.x1).diff(moment(d.x0))).humanize()}`)
-          // Nudge left-most and right-most tooltips towards center to prevent tooltips overflowing screen
-          .style('transform', ttContentTransform)
-        tooltip
-          .style('opacity', .9)
-          .style('left', `${Math.round(x(d.x0)) + 1 + (Math.round(Math.max(0, x(d.x1) - x(d.x0))) -1) /2 }px`)
-          .style('top', `${y(d.length)}px`)
-      })
-      .on('mouseout', () => tooltip.style('opacity', 0))
-
-    bars.append('rect')
-      .attr('fill', '#a5c9e6')
-      .attr('x', d => Math.round(x(d.x0)) + 1)
-      .attr('y', d => y(d.length))
-      .attr('height', d => y(0) - y(d.length))
-      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
-
-    // Add a full height transparent rect to each histogram bar to make hovering short bars easier
-    bars.append('rect')
-      .attr('fill', 'rgba(255, 0, 0, 0)')
-      .attr('x', d => Math.round(x(d.x0)) + 1)
-      .attr('y', d => 0)
-      .attr('height', d => y(0))
-      .attr('width', d => Math.round(Math.max(0, x(d.x1) - x(d.x0))) - 1)
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -1075,11 +983,6 @@ svg.tags-graph.hidden {
   display: block;
 }
 
-svg.timeline {
-  margin: 0 0 20px 0;
-  overflow: visible;
-}
-
 .questions-table {
   border-collapse: collapse;
   width: 100%;
@@ -1130,40 +1033,6 @@ svg.timeline {
   margin: 20px;
   font-style: italic;
   color: #898989;
-}
-
-div.timeline {
-  position: relative;
-}
-.d3-tooltip {
-  opacity: 0;
-  position: absolute;
-  // top center positioning
-  transform: translate(-50%, calc(-100% - 6px));
-  pointer-events: none;
-  .content {
-    line-height: 1;
-    padding: 6px;
-    background: rgb(30, 30, 30);
-    color: #fff;
-    border-radius: 4px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  .arrow {
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    &:before {
-      position: absolute;
-      content: "";
-      border-color: transparent;
-      border-style: solid;
-      border-width: 0.4rem 0.4rem 0;
-      border-top-color: rgb(30, 30, 30);
-      transform: translate(-50%, 0);
-    }
-  }
 }
 
 .links line {
