@@ -126,9 +126,10 @@
             <div v-html="question.title" />
           </td>
           <td>{{ question.view_count }}</td>
-          <td>
+          <td class="answers">
             {{ question.answer_count }}
-            <span v-if="question.accepted_answer_id">✅</span>
+            <!-- ✅ -->
+            <span v-if="question.accepted_answer_id"><FontAwesomeIcon :icon="['fas', 'circle-check']" color="#00be00" /></span>
           </td>
           <td>{{ question.score }}</td>
           <td class="time">
@@ -208,6 +209,8 @@
     tagsGraphInited: false,
     tagsGraphVisible: false,
   })
+  let page = 1
+  const PAGESIZE = 100
 
   const PREFECT = 'prefect'
   const primaryTags: string[] = [PREFECT, 'javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
@@ -218,12 +221,6 @@
     return primaryTags.filter(tag => tag !== getActivePrimaryTab())
   }
 
-  const COLLAPSED_TAGS_HEIGHT = 85
-  const filterTags = ref<HTMLElement | undefined>()
-
-  let page = 1
-  const PAGESIZE = 100
-
   onMounted(async () => {
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
@@ -232,14 +229,18 @@
   })
 
   onBeforeRouteUpdate(async to => {
+    // Currently all route changes cause questions list to reload
     d3.selectAll('svg.timeline > *').remove()
     questions.splice(0, questions.length)
     page = 1
     await loadQuestions(to.query)
   })
 
+  const COLLAPSED_TAGS_HEIGHT = 85
+  const filterTags = ref<HTMLElement | undefined>()
   onUpdated(() => {
     state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
+
     // TODO: skip rendering if screen width not changed?
     drawHistogram()
 
@@ -302,12 +303,18 @@
       data = await response.json()
       // NB: https://api.stackexchange.com/docs/throttle
       console.log(`API calls remaining: ${data.quota_remaining}`)
-      sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
+      try {
+        sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
+      } catch (error) {
+        console.error(error);
+        console.log('Clearing sessionStorage...')
+        sessionStorage.clear()
+      }
     }
     return data
   }
 
-  // Updates query param or removes it if value if falsey
+  // Updates query param or removes it if value is falsy
   const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
     const { [param]: _oldParam, ...query } = router.currentRoute.value.query
     if (value) {
@@ -397,7 +404,7 @@
   type Link = { source: string, target: string, weight: number }
   type Graph = { nodes: Node[], links: Link[], maxWeight: number }
 
-  const getTagsGraph = (query: LocationQuery): Graph => {
+  const getTagsGraphData = (query: LocationQuery): Graph => {
     const tagNodes: Node[] = []
     questions.forEach(question => {
       question.tags.forEach(tag => {
@@ -457,10 +464,6 @@
     const svg = d3.select('svg.tags-graph')
     const height = +svg.attr('height')
 
-    const collisionForce = rectCollide().size(d => {
-      return [d.width + 34, 28]
-    })
-
     let g = svg.append('g'),
         link = g.append('g').classed('links', true).selectAll('.link'),
         node = g.append('g').classed('nodes', true).selectAll('.node')
@@ -470,6 +473,7 @@
       .force('link', d3.forceLink().id(d => d.id).distance(100))
       .force('x', d3.forceX())
       .force('y', d3.forceY())
+      .force('collision', rectCollide().size(d => [d.width + 34, 28]))
       .on('tick', ticked)
       .alphaDecay(0.0228)
 
@@ -498,7 +502,7 @@
     graph = Object.assign(svg.node(), {
       update(query: LocationQuery = router.currentRoute.value.query) {
 
-        let { nodes, links, maxWeight } = getTagsGraph(query)
+        let { nodes, links, maxWeight } = getTagsGraphData(query)
 
         // Make a shallow copy to protect against mutation, while
         // recycling old nodes to preserve position and velocity.
@@ -508,6 +512,7 @@
 
         simulation.nodes(nodes)
         simulation.force('link').links(links)
+
         simulation.alpha(1).restart()
 
         node = node
@@ -544,7 +549,7 @@
             return g
           })
 
-        simulation.force('collision', collisionForce)
+
 
         node.classed('active', d => {
           const [qTags] = getTagsAndTaglessQuery(query)
@@ -943,6 +948,10 @@ header {
       border-radius: 4px;
       font-family: inherit;
       height: 19px;
+      &:focus-visible, &:focus {
+        outline: none;
+        border: 1px solid #0d70a9;
+      }
     }
   }
   .search-tags {
@@ -952,6 +961,9 @@ header {
     padding: 3px 22px 3px 3px;
     border-radius: 4px;
     position: relative;
+    &:has(> input:focus) {
+      border: 1px solid #0d70a9;
+    }
     input {
       all: unset;
       display: revert;
@@ -1030,7 +1042,7 @@ header {
     border: 1px solid #cccccc;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
-    background-color: #e6e6e6;
+    background-color: #ececec;
     font-size: 14px;
     padding: 7px 15px 6px;
     margin-left: 10px;
@@ -1047,7 +1059,7 @@ header {
     }
     &:not(.active):hover {
       cursor: pointer;
-      background-color: #f2f2f2;;
+      background-color: #f4f4f4;;
     }
   }
 }
@@ -1083,23 +1095,27 @@ svg.timeline {
   td {
     min-height: 20px;
     white-space: nowrap;
+    .owner {
+      display: flex;
+      align-items: center;
+      img {
+        width: 20px;
+        height: 20px;
+        object-fit: cover;
+        margin-right: 10px;
+      }
+    }
     &.title {
       white-space: normal;
     }
     &.time {
       font-size: 13px;
     }
-  }
-}
-
-.owner {
-  display: flex;
-  align-items: center;
-  img {
-    width: 20px;
-    height: 20px;
-    object-fit: cover;
-    margin-right: 10px;
+    &.answers {
+      > span {
+        margin-left: 5px;
+      }
+    }
   }
 }
 
