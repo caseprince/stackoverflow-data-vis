@@ -24,13 +24,13 @@
     <div class="filters">
       <div class="filters-row">
         <div class="tabs">
-        <div class="tab" :class="!state.tagsGraphVisible && 'active'" @click="setTagGraph(false)">
-          <FontAwesomeIcon :icon="['fas', 'bars']" />Tag List
+          <div class="tab" :class="!state.tagsGraphVisible && 'active'" @click="setTagGraph(false)">
+            <FontAwesomeIcon :icon="['fas', 'bars']" />Tag List
+          </div>
+          <div class="tab" :class="state.tagsGraphVisible && 'active'" @click="setTagGraph(true)">
+            <FontAwesomeIcon :icon="['fas', 'circle-nodes']" />Tag Relationship Graph
+          </div>
         </div>
-        <div class="tab" :class="state.tagsGraphVisible && 'active'" @click="setTagGraph(true)">
-          <FontAwesomeIcon :icon="['fas', 'circle-nodes']" />Tag Relationship Graph
-        </div>
-      </div>
         <div class="date-filters">
           <h4>Date Filters:</h4>
           <div class="toggle-switch">
@@ -60,22 +60,22 @@
       </div>
 
       <div class="tag-filters-header">
-          <h4>Filter by {{ tags.length }} additional tags:</h4>
-          <div class="search-tags">
-            <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
-            <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
-            <menu v-if="searchTags.results.length">
-              <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
-                <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
-                  {{ tag }}
-                </li>
-              </template>
-            </menu>
-          </div>
+        <h4>Filter by {{ tags.length }} additional tags:</h4>
+        <div class="search-tags">
+          <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
+          <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
+          <menu v-if="searchTags.results.length">
+            <template v-for="(tag, index) in searchTags.results" :key="`${tag}_searched`">
+              <li class="tag" :class="index === searchTags.keyIndex && 'keyboard-selected'" @click="addSearchedTag(tag)">
+                {{ tag }}
+              </li>
+            </template>
+          </menu>
         </div>
+      </div>
 
       <div v-if="!state.tagsGraphVisible">
-        <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'" >
+        <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'">
           <div ref="filterTags" class="tags">
             <template v-for="tag in tags" :key="tag.name">
               <span class="tag" :class="tag.active && 'active'" @click="toggleTag(tag.name)">{{ tag.name }}</span>
@@ -83,7 +83,7 @@
           </div>
         </div>
         <div v-if="state.tagsCanExpand" class="more-or-less">
-          <hr/>
+          <hr>
           <span @click="toggleTagsExpanded">
             <span v-if="!state.tagsExpanded">more <FontAwesomeIcon :icon="['fas', 'angle-down']" /></span>
             <span v-else>less <FontAwesomeIcon :icon="['fas', 'angle-up']" /></span>
@@ -91,10 +91,14 @@
         </div>
       </div>
 
-      <svg v-if="state.tagsGraphInited" class="tags-graph" :class="!state.tagsGraphVisible && 'hidden'" width="100%" height="500" ><g /></svg>
+      <svg v-if="state.tagsGraphInited" class="tags-graph" :class="!state.tagsGraphVisible && 'hidden'" width="100%" height="500"><g /></svg>
     </div>
 
-    <TimelineHistogram v-if="questions.length >= 2" :questions="[...questions]" />
+    <TimelineHistogram
+      v-if="questions.length >= 2"
+      :data="getHistogramData()"
+      :click-bin="clickHistogramBin"
+    />
 
     <table class="questions-table">
       <tr>
@@ -108,7 +112,7 @@
         <th>Active</th>
       </tr>
       <template v-for="question in questions" :key="question.question_id">
-        <tr @click="onClickTableRow(question.link)">
+        <tr :id="question.question_id.toString()" @click="onClickTableRow(question.link)">
           <td>
             <div class="owner">
               <img :src="question.owner.profile_image" referrerpolicy="no-referrer">
@@ -150,9 +154,9 @@
   import moment from 'moment'
   import { InputHTMLAttributes, onBeforeUnmount, onMounted,  onRenderTracked,  onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
+  import TimelineHistogram, { HistogramDatum } from '@/components/TimelineHistogram.vue'
   import router from '@/router'
   import rectCollide from '@/utils/rectCollide'
-  import TimelineHistogram from '@/components/TimelineHistogram.vue'
 
   type Question = {
     accepted_answer_id?: number,
@@ -216,15 +220,36 @@
     return primaryTags.filter(tag => tag !== getActivePrimaryTab())
   }
 
+  const getHistogramData = (): HistogramDatum[] => questions.map((question) => ({
+    id: question.question_id,
+    date: new Date(question.creation_date * 1000),
+  }))
+  function clickHistogramBin(d: HistogramDatum[]): void {
+    Array.from(document.querySelectorAll('.flash')).forEach((el) => el.classList.remove('flash'))
+    d.forEach((datum, i) => {
+      const el = document.getElementById(String(datum.id))
+      el?.classList.add('flash')
+      if (i === 0) {
+        el?.scrollIntoView()
+      }
+    })
+  }
+
+  function clickGraphNode(id: string): void {
+    const { query } = router.currentRoute.value
+    if (query.primary_tag && id !== query.primary_tag || !query.primary_tag && id !== PREFECT) {
+      toggleTag(id)
+    }
+  }
+
   onMounted(async () => {
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
     window.addEventListener('resize', onResize)
-    updateGraphWidth();
+    updateGraphWidth()
   })
 
   onBeforeRouteUpdate(async to => {
-    questions.splice(0, questions.length)
     page = 1
     await loadQuestions(to.query)
   })
@@ -235,7 +260,7 @@
     state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
 
     if (state.tagsGraphVisible && !graph) {
-      updateGraphWidth();
+      updateGraphWidth()
       drawTagsGraph()
       graph.update(router.currentRoute.value.query)
     }
@@ -250,7 +275,7 @@
   const updateGraphWidth = (): void => {
     var svg = d3.select('svg.tags-graph')
     if (svg.node()) {
-      graphWidth = (svg.node() as Element).getBoundingClientRect().width;
+      graphWidth = (svg.node() as Element).getBoundingClientRect().width
       const height = +svg.attr('height')
       const NUDGE_HORIZ = 0
       svg.attr('viewBox', [-graphWidth / 2 + NUDGE_HORIZ, -height / 2, graphWidth + NUDGE_HORIZ, height])
@@ -295,7 +320,7 @@
       try {
         sessionStorage.setItem(url, JSON.stringify({ data, time: new Date().getTime() }))
       } catch (error) {
-        console.error(error);
+        console.error(error)
         console.log('Clearing sessionStorage...')
         sessionStorage.clear()
       }
@@ -348,6 +373,9 @@
     const data = await fetchDataWithCache(url)
     state.loading = false
     state.hasMore = data.has_more
+    if (page === 1) {
+      questions.splice(0, questions.length)
+    }
     questions.push(...data.items)
 
     tags.splice(0, tags.length)
@@ -482,7 +510,7 @@
         }
         const yClamped = Math.min(Math.max(d.y, -radiusY), radiusY)
         d.y = yClamped
-        const xClamped = Math.min(Math.max(d.x, -radiusX + (d.width/2)), radiusX - (d.width/2))
+        const xClamped = Math.min(Math.max(d.x, -radiusX + d.width/2), radiusX - d.width/2)
         d.x = xClamped
         return `translate(${d.x},${d.y})`
       })
@@ -514,7 +542,7 @@
           .join(enter => {
             let e = enter
             const g = e.append('g').on('click', (_event, d) => {
-              if ((query.primary_tag && d.id !== query.primary_tag) || (!query.primary_tag && d.id !== PREFECT)) {
+              if (query.primary_tag && d.id !== query.primary_tag || !query.primary_tag && d.id !== PREFECT) {
                 toggleTag(d.id)
               }
             })
@@ -544,7 +572,6 @@
           })
 
 
-
         node.classed('active', d => {
           const [qTags] = getTagsAndTaglessQuery(query)
           return qTags.includes(d.id) || d.id === query.primary_tag || !query.primary_tag && d.id === PREFECT
@@ -553,8 +580,8 @@
         link = link
           .data(links, d => `${d.source.id}\t${d.target.id}`)
           .join('line')
-          .attr('opacity', d => 0.4 + (d.weight / maxWeight) * 0.4)
-          .attr('stroke-width', d => 1 + (d.weight / maxWeight) * 10)
+          .attr('opacity', d => 0.4 + d.weight / maxWeight * 0.4)
+          .attr('stroke-width', d => 1 + d.weight / maxWeight * 10)
       },
     })
   }
@@ -683,6 +710,8 @@
 </script>
 
 <style lang="scss">
+@import "../../scss/_mixins";
+
 .so-visualizer {
   padding: 24px 12px;
 }
@@ -993,6 +1022,19 @@ svg.tags-graph.hidden {
     }
     &:nth-child(even) {
       background-color: #f4f4f4;
+    }
+    &.flash {
+      td {
+        @include keyframes(flash){
+          0%{
+            background-color: rgb(133, 208, 255, 0.8)
+          }
+          100%{
+            background-color: rgb(95, 165, 255, 0)
+          }
+        }
+        @include animation('flash 1s linear 1');
+      }
     }
   }
   th {
