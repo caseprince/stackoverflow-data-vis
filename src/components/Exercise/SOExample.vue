@@ -5,9 +5,9 @@
         <FontAwesomeIcon class="so-logo" :icon="['fab', 'stack-overflow']" color="#e68e47" />
         Stack Overflow Questions with
         <span class="primary-tag-dropdown">
-          <span class="tag" @click="togglePrimaryTagDropdown">{{ getActivePrimaryTab() }}<i>🞃</i></span>
+          <span class="tag" @click="togglePrimaryTagDropdown">{{ getActivePrimaryTag() }}<i>🞃</i></span>
           <menu v-if="state.primaryTagDropdownOpen">
-            <template v-for="primaryTag in getPrimaryTagsMenu()" :key="`${primaryTag}_primary`">
+            <template v-for="primaryTag in getPrimaryTagMenuItems()" :key="`${primaryTag}_primary`">
               <li @click="changePrimaryTag(primaryTag)">{{ primaryTag }}</li>
             </template>
           </menu>
@@ -199,6 +199,7 @@
 
   const questions: Question[] = reactive([])
   const tags: Tag[] = reactive([])
+
   let state = reactive({
     loading: true,
     hasMore: false,
@@ -215,15 +216,6 @@
   })
   let page = 1
   const PAGESIZE = 100
-
-  const PREFECT = 'prefect'
-  const primaryTags: string[] = [PREFECT, 'javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
-  function getActivePrimaryTab(): string {
-    return (router.currentRoute.value.query.primary_tag || PREFECT) as string
-  }
-  function getPrimaryTagsMenu(): string[] {
-    return primaryTags.filter(tag => tag !== getActivePrimaryTab())
-  }
 
   onMounted(async () => {
     await loadQuestions()
@@ -253,9 +245,53 @@
     }
   }
 
+  /*
+  * PRIMARY TAG DROPDOWN
+  */
+
+  const PREFECT = 'prefect'
+  const primaryTags: string[] = [PREFECT, 'javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
+  function getActivePrimaryTag(): string {
+    return (router.currentRoute.value.query.primary_tag || PREFECT) as string
+  }
+  function getPrimaryTagMenuItems(): string[] {
+    return primaryTags.filter(tag => tag !== getActivePrimaryTag())
+  }
+  function togglePrimaryTagDropdown(event: Event): void {
+    event.stopPropagation()
+    state.primaryTagDropdownOpen = !state.primaryTagDropdownOpen
+    if (state.primaryTagDropdownOpen) {
+      window.addEventListener('click', togglePrimaryTagDropdown)
+    } else {
+      window.removeEventListener('click', togglePrimaryTagDropdown)
+    }
+  }
+  // Changes or removes primary tag query param and resets 2ndary tags
+  function changePrimaryTag(primaryTag: string): void {
+    const [_qTags, oldQuery] = getTagsAndTaglessQuery()
+    const { primary_tag: _primary_tag, ...query } = oldQuery
+    if (primaryTag !== PREFECT) {
+      query.primary_tag = primaryTag
+    }
+    router.push({ path: router.currentRoute.value.path, query })
+  }
+
+  /*
+   * DATA LOADING
+   */
+
   const nextPage = (): void => {
     page++
     loadQuestions()
+  }
+
+  // Updates query param or removes it if value is falsy
+  const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
+    const { [param]: _oldParam, ...query } = router.currentRoute.value.query
+    if (value) {
+      query[param] = String(value)
+    }
+    router.push({ path: router.currentRoute.value.path, query })
   }
 
   const fetchDataWithCache = async (url: string): Promise<any> => {
@@ -284,15 +320,6 @@
       }
     }
     return data
-  }
-
-  // Updates query param or removes it if value is falsy
-  const updateOrRemoveQueryParam = (param: string, value?: string | boolean): void => {
-    const { [param]: _oldParam, ...query } = router.currentRoute.value.query
-    if (value) {
-      query[param] = String(value)
-    }
-    router.push({ path: router.currentRoute.value.path, query })
   }
 
   const loadQuestions = async (query: LocationQuery = router.currentRoute.value.query): Promise<void> => {
@@ -374,21 +401,15 @@
         tags.unshift({ name: qTag, questionIds: [], active: true })
       }
     })
-  } // End loadQuestions
+  }
 
-  const getHistogramData = (): HistogramDatum[] => questions.map((question) => ({
-    id: question.question_id,
-    date: new Date(question.creation_date * 1000),
-  }))
-  function clickHistogramBin(d: HistogramDatum[]): void {
-    Array.from(document.querySelectorAll('.flash')).forEach((el) => el.classList.remove('flash'))
-    d.forEach((datum, i) => {
-      const el = document.getElementById(String(datum.id))
-      el?.classList.add('flash')
-      if (i === 0) {
-        el?.scrollIntoView()
-      }
-    })
+  /*
+   * FORCE DIRECTED TAGS GRAPH
+   */
+
+  function setTagGraph(showGraph: boolean): void {
+    state.tagsGraphInited = true
+    state.tagsGraphVisible = showGraph
   }
 
   const getTagsGraphData = (): Graph => {
@@ -446,38 +467,41 @@
     }
   }
 
-  const getActiveTags = () => {
+  const getActiveTags = (): string[] => {
     const [qTags] = getTagsAndTaglessQuery(router.currentRoute.value.query)
     qTags.push(router.currentRoute.value.query.primary_tag as string || PREFECT)
     return qTags
   }
 
-  function setTagGraph(showGraph: boolean): void {
-    state.tagsGraphInited = true
-    state.tagsGraphVisible = showGraph
-  }
+  /*
+   * DATE FILTERS
+   */
 
-  function togglePrimaryTagDropdown(event: Event): void {
-    event.stopPropagation()
-    state.primaryTagDropdownOpen = !state.primaryTagDropdownOpen
-    if (state.primaryTagDropdownOpen) {
-      window.addEventListener('click', togglePrimaryTagDropdown)
-    } else {
-      window.removeEventListener('click', togglePrimaryTagDropdown)
+  function toggleOldestFirst(oldest: boolean): void {
+    if (oldest !== !!router.currentRoute.value.query.oldest) {
+      updateOrRemoveQueryParam('oldest', oldest)
     }
   }
 
-  // Changes or removes primary tag query param and resets 2ndary tags
-  function changePrimaryTag(primaryTag: string): void {
-    const [_qTags, oldQuery] = getTagsAndTaglessQuery()
-    const { primary_tag: _primary_tag, ...query } = oldQuery
-    if (primaryTag !== PREFECT) {
-      query.primary_tag = primaryTag
-    }
-    router.push({ path: router.currentRoute.value.path, query })
+  function toISOLocalDate(date: Date): string {
+    const zeroPad = (num: number): string => `0${num}`.slice(-2)
+    return `${date.getFullYear()}-${zeroPad(date.getMonth()+1)}-${zeroPad(date.getDate())}`
   }
 
-  // TAG FILTERS ~~~~~~~~~~~~~~~~~~~~~~~~
+  // TODO: Prevent/warn on negative date ranges?
+  function setFromDate(event: Event): void {
+    const fromDate = (event.target as HTMLInputElement).value
+    updateOrRemoveQueryParam('from_date', fromDate)
+  }
+
+  function setToDate(event: Event): void {
+    const toDate = (event.target as HTMLInputElement).value
+    updateOrRemoveQueryParam('to_date', toDate)
+  }
+
+  /*
+   * TAG FILTERS
+   */
 
   // Strips out (and parses) tags param from query and returns destructured ...rest
   const getTagsAndTaglessQuery = (query: LocationQuery = router.currentRoute.value.query): [string[], LocationQuery] => {
@@ -547,29 +571,28 @@
     state.tagsExpanded = !state.tagsExpanded
   }
 
-  // END TAG FILTERS ~~~~~~~~~~~~~~~~~~~~
+  /*
+   * HISTOGRAM
+   */
 
-  function toggleOldestFirst(oldest: boolean): void {
-    if (oldest !== !!router.currentRoute.value.query.oldest) {
-      updateOrRemoveQueryParam('oldest', oldest)
-    }
+  const getHistogramData = (): HistogramDatum[] => questions.map((question) => ({
+    id: question.question_id,
+    date: new Date(question.creation_date * 1000),
+  }))
+  function clickHistogramBin(d: HistogramDatum[]): void {
+    Array.from(document.querySelectorAll('.flash')).forEach((el) => el.classList.remove('flash'))
+    d.forEach((datum, i) => {
+      const el = document.getElementById(String(datum.id))
+      el?.classList.add('flash')
+      if (i === 0) {
+        el?.scrollIntoView()
+      }
+    })
   }
 
-  function toISOLocalDate(date: Date): string {
-    const zeroPad = (num: number): string => `0${num}`.slice(-2)
-    return `${date.getFullYear()}-${zeroPad(date.getMonth()+1)}-${zeroPad(date.getDate())}`
-  }
-
-  // TODO: Prevent/warn on negative date ranges?
-  function setFromDate(event: Event): void {
-    const fromDate = (event.target as HTMLInputElement).value
-    updateOrRemoveQueryParam('from_date', fromDate)
-  }
-
-  function setToDate(event: Event): void {
-    const toDate = (event.target as HTMLInputElement).value
-    updateOrRemoveQueryParam('to_date', toDate)
-  }
+  /*
+   * QUESTIONS TABLE
+   */
 
   function onClickTableRow(link: string): void {
     // This would useful for future analytics, but something involving <a>s would likely be better UX, since
@@ -884,7 +907,7 @@ header {
   tr {
     &:not(:first-child):hover {
       cursor: pointer;
-      background-color: #dae9ff !important;
+      background-color: #e1edff !important;
     }
     &:nth-child(even) {
       background-color: #f4f4f4;
@@ -893,7 +916,7 @@ header {
       td {
         @include keyframes(flash){
           0%{
-            background-color: rgb(133, 208, 255, 0.8)
+            background-color: rgba(163, 211, 255, 0.8)
           }
           100%{
             background-color: rgb(95, 165, 255, 0)
