@@ -155,7 +155,6 @@
           .on('tick', ticked)
           .alphaDecay(0.0228)
 
-
         // This doesn't feel idiomatic, but the Object.assign is a common pattern:
         // https://observablehq.com/@d3/learn-d3-joins
         // https://observablehq.com/@tgjt/modifying-a-force-directed-graph
@@ -173,6 +172,42 @@
             simulation.force('link').links(links)
 
             simulation.alpha(1).restart()
+
+            // build a dictionary of nodes that are linked
+            const linkedById: any = {}
+            links.forEach((d) => {
+              linkedById[`${d.source.id},${d.target.id}`] = 1
+            })
+            // check the dictionary to see if nodes are linked
+            const isConnected = (a, b): boolean =>  {
+              return linkedById[`${a.id},${b.id}`] || linkedById[`${b.id},${a.id}`] || a.id == b.id
+            }
+
+
+            const mouseOver = (_e: Event, d: any): void => {
+              node.sort((a, _b) => {
+                if (a.id !== d.id && !isConnected(a, d)) {
+                  // a is not the hovered element, or linked to hovered element, send "a" to the back
+                  return -1
+                }
+                return 1
+              })
+
+              // highlight linked nodes/links
+              node.classed('hovered-adjacent', (o) => isConnected(d, o))
+              link.classed('node-hovered', (o) => o.source === d || o.target === d)
+
+              // fade unlinked nodes/links
+              node.classed('not-hovered-adjacent', (o) => !isConnected(d, o))
+              link.classed('node-not-hovered', (o) => o.source !== d && o.target !== d)
+            }
+
+            function mouseOut(): void {
+              node.classed('hovered-adjacent', false)
+              node.classed('not-hovered-adjacent', false)
+              link.classed('node-hovered', false)
+              link.classed('node-not-hovered', false)
+            }
 
             node = node
               .data(nodes, (d) => d.id)
@@ -210,16 +245,17 @@
 
                 return g
               })
-            node.classed(
-              'active',
-              (d) => this.activeNodeIds.includes(d.id),
-            )
+            node
+              .classed('active', (d) => this.activeNodeIds.includes(d.id))
+              .on('mouseover', mouseOver)
+              .on('mouseout', mouseOut)
 
             link = link
               .data(links, (d) => `${d.source.id}\t${d.target.id}`)
               .join('line')
               .attr('opacity', (d) => 0.4 + d.weight / maxWeight * 0.4)
-              .attr('stroke-width', (d) => 1 + d.weight / maxWeight * 10)
+              .attr('stroke-width', (d) => 2 + d.weight / maxWeight * 10)
+
           },
         })
       },
@@ -237,6 +273,14 @@ svg.force-directed-graph {
 .links line {
   stroke: #999;
   stroke-opacity: 0.6;
+  &.node-hovered {
+    stroke-opacity: 0.9;
+    stroke: rgba(0, 76, 152, 1);
+  }
+  &.node-not-hovered {
+    stroke-opacity: 0.3;
+  }
+
 }
 
 .nodes {
@@ -249,13 +293,26 @@ svg.force-directed-graph {
     font-size: 12px;
     fill: #39739d;
   }
+  g.hovered-adjacent {
+    rect {
+      stroke: rgba(0, 76, 152, 1);
+    }
+  }
+  g.not-hovered-adjacent {
+    rect {
+      fill: #eef3f7;
+    }
+    text {
+      fill: #99b7cd;
+    }
+  }
   g:hover {
     cursor: pointer;
     rect {
       fill: #c5dbec;
     }
     text {
-      fill: 106098;
+      fill: #106098;
     }
   }
   g.active {
