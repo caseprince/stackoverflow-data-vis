@@ -64,9 +64,9 @@
           Filter by {{ tags.length }} additional tags:
         </h4>
         <h4 v-if="state.tagsGraphVisible">
-          Showing <span v-if="tags.length > 50">top </span>
-          <span v-if="tags.length <= 50">{{ tags.length }}</span>
-          <select v-if="tags.length > 50" :value="state.maxTagNodes" @change="changeMaxTagNodes">
+          Showing <span v-if="tags.length + 1 > 50">top </span>
+          <span v-if="tags.length + 1 <= 50">{{ tags.length + 1 }}</span>
+          <select v-if="tags.length + 1 > 50" :value="state.maxTagNodes" @change="changeMaxTagNodes">
             <option>50</option>
             <option>
               100
@@ -77,7 +77,7 @@
             <option>
               200
             </option>
-          </select> of {{ tags.length }} tags:
+          </select> of {{ tags.length + 1 }} tags:
         </h4>
         <div class="search-tags">
           <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
@@ -110,7 +110,7 @@
       </div>
 
       <ForceDirectedGraph
-        v-if="state.tagsGraphInited && questions.length >= 1"
+        v-if="state.tagsGraphInited"
         :visible="state.tagsGraphVisible"
         :data="getTagsGraphData()"
         :primary-node-id="getActivePrimaryTag()"
@@ -151,7 +151,6 @@
           <td>{{ question.view_count }}</td>
           <td class="answers">
             {{ question.answer_count }}
-            <!-- ✅ -->
             <span v-if="question.accepted_answer_id"><FontAwesomeIcon :icon="['fas', 'circle-check']" color="#00be00" /></span>
           </td>
           <td>{{ question.score }}</td>
@@ -439,7 +438,8 @@
   }
 
   const getTagsGraphData = (): Graph => {
-    let tagNodes: Node[] = []
+    // Pre-populate with active tags in case no questions found so tags can be deselected from graph view
+    let tagNodes: Node[] = getActiveTags().map(tag => ({ id: tag, weight: 0 }))
     questions.forEach(question => {
       question.tags.forEach(tag => {
         const existingTag = tagNodes.find(t => t.id === tag)
