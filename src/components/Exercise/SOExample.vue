@@ -91,7 +91,13 @@
         </div>
       </div>
 
-      <svg v-if="state.tagsGraphInited" class="tags-graph" :class="!state.tagsGraphVisible && 'hidden'" width="100%" height="500"><g /></svg>
+      <ForceDirectedGraph
+        v-if="state.tagsGraphInited"
+        :visible="state.tagsGraphVisible"
+        :data="getTagsGraphData()"
+        :active-node-ids="getActiveTags()"
+        :click-node="clickGraphNode"
+      />
     </div>
 
     <TimelineHistogram
@@ -150,13 +156,12 @@
 
 <script lang="ts" setup>
   import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-  import * as d3 from 'd3'
   import moment from 'moment'
-  import { InputHTMLAttributes, onBeforeUnmount, onMounted,  onRenderTracked,  onUpdated, reactive, ref } from 'vue'
+  import { InputHTMLAttributes, onBeforeUnmount, onMounted, onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
+  import ForceDirectedGraph, { Graph, Link, Node } from '@/components/ForceDirectedGraph.vue'
   import TimelineHistogram, { HistogramDatum } from '@/components/TimelineHistogram.vue'
   import router from '@/router'
-  import rectCollide from '@/utils/rectCollide'
 
   type Question = {
     accepted_answer_id?: number,
@@ -220,33 +225,9 @@
     return primaryTags.filter(tag => tag !== getActivePrimaryTab())
   }
 
-  const getHistogramData = (): HistogramDatum[] => questions.map((question) => ({
-    id: question.question_id,
-    date: new Date(question.creation_date * 1000),
-  }))
-  function clickHistogramBin(d: HistogramDatum[]): void {
-    Array.from(document.querySelectorAll('.flash')).forEach((el) => el.classList.remove('flash'))
-    d.forEach((datum, i) => {
-      const el = document.getElementById(String(datum.id))
-      el?.classList.add('flash')
-      if (i === 0) {
-        el?.scrollIntoView()
-      }
-    })
-  }
-
-  function clickGraphNode(id: string): void {
-    const { query } = router.currentRoute.value
-    if (query.primary_tag && id !== query.primary_tag || !query.primary_tag && id !== PREFECT) {
-      toggleTag(id)
-    }
-  }
-
   onMounted(async () => {
     await loadQuestions()
     window.addEventListener('scroll', onScroll)
-    window.addEventListener('resize', onResize)
-    updateGraphWidth()
   })
 
   onBeforeRouteUpdate(async to => {
@@ -258,34 +239,11 @@
   const filterTags = ref<HTMLElement | undefined>()
   onUpdated(() => {
     state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
-
-    if (state.tagsGraphVisible && !graph) {
-      updateGraphWidth()
-      drawTagsGraph()
-      graph.update(router.currentRoute.value.query)
-    }
   })
 
   onBeforeUnmount(() => {
     window.removeEventListener('scroll', onScroll)
-    window.removeEventListener('resize', onResize)
   })
-
-  let graphWidth = 1000
-  const updateGraphWidth = (): void => {
-    var svg = d3.select('svg.tags-graph')
-    if (svg.node()) {
-      graphWidth = (svg.node() as Element).getBoundingClientRect().width
-      const height = +svg.attr('height')
-      const NUDGE_HORIZ = 0
-      svg.attr('viewBox', [-graphWidth / 2 + NUDGE_HORIZ, -height / 2, graphWidth + NUDGE_HORIZ, height])
-    }
-  }
-
-  const onResize = (): void => {
-    updateGraphWidth()
-    simulation && simulation.alpha(1).restart()
-  }
 
   const onScroll = (): void => {
     if (window.innerHeight + Math.ceil(window.pageYOffset) >= document.body.offsetHeight) {
@@ -416,22 +374,30 @@
         tags.unshift({ name: qTag, questionIds: [], active: true })
       }
     })
-
-    if (graph) {
-      graph.update(query)
-    }
   } // End loadQuestions
 
-  type Node = { id: string, width: number}
-  type Link = { source: string, target: string, weight: number }
-  type Graph = { nodes: Node[], links: Link[], maxWeight: number }
+  const getHistogramData = (): HistogramDatum[] => questions.map((question) => ({
+    id: question.question_id,
+    date: new Date(question.creation_date * 1000),
+  }))
+  function clickHistogramBin(d: HistogramDatum[]): void {
+    Array.from(document.querySelectorAll('.flash')).forEach((el) => el.classList.remove('flash'))
+    d.forEach((datum, i) => {
+      const el = document.getElementById(String(datum.id))
+      el?.classList.add('flash')
+      if (i === 0) {
+        el?.scrollIntoView()
+      }
+    })
+  }
 
-  const getTagsGraphData = (query: LocationQuery): Graph => {
+  const getTagsGraphData = (): Graph => {
     const tagNodes: Node[] = []
     questions.forEach(question => {
       question.tags.forEach(tag => {
         if (!tagNodes.find(t => t.id === tag)) {
-          if (tag === query.primary_tag || !query.primary_tag && tag === PREFECT) {
+          if (tag === PREFECT) {
+            // if (tag === query.primary_tag || !query.primary_tag && tag === PREFECT) {
             // Put primary tag at index 0 so we can force-center it
             tagNodes.unshift({ id: tag })
           } else {
@@ -469,121 +435,26 @@
     return {
       nodes: tagNodes,
       links: tagLinks,
-      maxWeight
+      maxWeight,
     }
+  }
+
+  function clickGraphNode(id: string): void {
+    const { query } = router.currentRoute.value
+    if (query.primary_tag && id !== query.primary_tag || !query.primary_tag && id !== PREFECT) {
+      toggleTag(id)
+    }
+  }
+
+  const getActiveTags = () => {
+    const [qTags] = getTagsAndTaglessQuery(router.currentRoute.value.query)
+    qTags.push(router.currentRoute.value.query.primary_tag as string || PREFECT)
+    return qTags
   }
 
   function setTagGraph(showGraph: boolean): void {
     state.tagsGraphInited = true
     state.tagsGraphVisible = showGraph
-  }
-
-  let graph: any
-  let simulation: d3.Simulation<d3.SimulationNodeDatum, undefined>
-  const drawTagsGraph = (): void => {
-
-    d3.selectAll('svg.tags-graph > *').remove()
-    const svg = d3.select('svg.tags-graph')
-    const height = +svg.attr('height')
-
-    let g = svg.append('g'),
-        link = g.append('g').classed('links', true).selectAll('.link'),
-        node = g.append('g').classed('nodes', true).selectAll('.node')
-
-    simulation = d3.forceSimulation()
-      .force('charge', d3.forceManyBody().strength(-600))
-      .force('link', d3.forceLink().id(d => d.id).distance(100))
-      .force('x', d3.forceX())
-      .force('y', d3.forceY())
-      .force('collision', rectCollide().size(d => [d.width + 34, 28]))
-      .on('tick', ticked)
-      .alphaDecay(0.0228)
-
-    function ticked(): void {
-      const radiusY = height / 2 - 13
-      const radiusX = Math.round(graphWidth / 2) - 10
-      node.attr('transform', (d, i) => {
-        if (i === 0) {
-          // Lock primary node to center/origin
-          d.y = d.x = 0
-          return `translate(${d.x},${d.y})`
-        }
-        const yClamped = Math.min(Math.max(d.y, -radiusY), radiusY)
-        d.y = yClamped
-        const xClamped = Math.min(Math.max(d.x, -radiusX + d.width/2), radiusX - d.width/2)
-        d.x = xClamped
-        return `translate(${d.x},${d.y})`
-      })
-
-      link.attr('x1', d => d.source.x)
-        .attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x)
-        .attr('y2', d => d.target.y)
-    }
-
-    graph = Object.assign(svg.node(), {
-      update(query: LocationQuery = router.currentRoute.value.query) {
-
-        let { nodes, links, maxWeight } = getTagsGraphData(query)
-
-        // Make a shallow copy to protect against mutation, while
-        // recycling old nodes to preserve position and velocity.
-        const old = new Map(node.data().map(d => [d.id, d]))
-        nodes = nodes.map(d => Object.assign(old.get(d.id) || {}, d))
-        links = links.map(d => Object.assign({}, d))
-
-        simulation.nodes(nodes)
-        simulation.force('link').links(links)
-
-        simulation.alpha(1).restart()
-
-        node = node
-          .data(nodes, d => d.id)
-          .join(enter => {
-            let e = enter
-            const g = e.append('g').on('click', (_event, d) => {
-              if (query.primary_tag && d.id !== query.primary_tag || !query.primary_tag && d.id !== PREFECT) {
-                toggleTag(d.id)
-              }
-            })
-
-            const rect = g.append('rect').attr('height', 22).attr('y', -12).attr('rx', 4).attr('ry', 4)
-            g.append('text')
-              .text((d) => {
-                return d.id
-              })
-              .attr('x', function(d) {
-                return -this.getBBox().width / 2
-              })
-              .attr('y', 3)
-              .attr('text-anchor', 'start')
-
-            rect
-              .attr('width', function(d) {
-                // Store newly added text node width in datum for use in collision detection
-                d.width = this.parentNode?.getBBox().width
-                return this.parentNode?.getBBox().width + 20
-              })
-              .attr('x', function(d) {
-                return -this.getBBox().width / 2
-              })
-
-            return g
-          })
-
-
-        node.classed('active', d => {
-          const [qTags] = getTagsAndTaglessQuery(query)
-          return qTags.includes(d.id) || d.id === query.primary_tag || !query.primary_tag && d.id === PREFECT
-        })
-
-        link = link
-          .data(links, d => `${d.source.id}\t${d.target.id}`)
-          .join('line')
-          .attr('opacity', d => 0.4 + d.weight / maxWeight * 0.4)
-          .attr('stroke-width', d => 1 + d.weight / maxWeight * 10)
-      },
-    })
   }
 
   function togglePrimaryTagDropdown(event: Event): void {
@@ -1007,11 +878,6 @@ header {
   }
 }
 
-svg.tags-graph.hidden {
-  height: 0px;
-  display: block;
-}
-
 .questions-table {
   border-collapse: collapse;
   width: 100%;
@@ -1075,44 +941,5 @@ svg.tags-graph.hidden {
   margin: 20px;
   font-style: italic;
   color: #898989;
-}
-
-.links line {
-  stroke: #999;
-  stroke-opacity: 0.6;
-}
-
-.nodes {
-  rect {
-    stroke: #fff;
-    stroke-width: 1.5px;
-    fill: #e1ecf4;
-  }
-  text {
-    font-size: 12px;
-    fill: #39739d;
-  }
-  g:hover {
-    cursor: pointer;
-    rect {
-      fill: #c5dbec;
-    }
-    text {
-      fill: 106098;
-    }
-  }
-  g.active {
-    rect {
-      fill: #3e7c9d;
-    }
-    text {
-      fill: white;
-    }
-    &:hover {
-      rect {
-        fill: #236182;
-      }
-    }
-  }
 }
 </style>
