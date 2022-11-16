@@ -60,7 +60,25 @@
       </div>
 
       <div class="tag-filters-header">
-        <h4>Filter by {{ tags.length }} additional tags:</h4>
+        <h4 v-if="!state.tagsGraphVisible">
+          Filter by {{ tags.length }} additional tags:
+        </h4>
+        <h4 v-if="state.tagsGraphVisible">
+          Showing <span v-if="tags.length > 50">top </span>
+          <span v-if="tags.length <= 50">{{ tags.length }}</span>
+          <select v-if="tags.length > 50" :value="state.maxTagNodes" @change="changeMaxTagNodes">
+            <option>50</option>
+            <option>
+              100
+            </option>
+            <option>
+              150
+            </option>
+            <option>
+              200
+            </option>
+          </select> of {{ tags.length }} tags:
+        </h4>
         <div class="search-tags">
           <input ref="searchTagsInput" placeholder="Search for tags" @input="changeSearchTagsInput" @keydown="searchTagsInputKeyDown">
           <FontAwesomeIcon :icon="['fas', 'magnifying-glass']" color="#cccccc" size="sm" />
@@ -92,9 +110,10 @@
       </div>
 
       <ForceDirectedGraph
-        v-if="state.tagsGraphInited"
+        v-if="state.tagsGraphInited && questions.length >= 1"
         :visible="state.tagsGraphVisible"
         :data="getTagsGraphData()"
+        :primary-node-id="getActivePrimaryTag()"
         :active-node-ids="getActiveTags()"
         :click-node="clickGraphNode"
       />
@@ -213,6 +232,7 @@
     // https://stackoverflow.com/questions/28282295/getbbox-of-svg-when-hidden
     tagsGraphInited: false,
     tagsGraphVisible: false,
+    maxTagNodes: 50,
   })
   let page = 1
   const PAGESIZE = 100
@@ -361,7 +381,9 @@
     if (page === 1) {
       questions.splice(0, questions.length)
     }
-    questions.push(...data.items)
+    if (data.items) {
+      questions.push(...data.items)
+    }
 
     tags.splice(0, tags.length)
 
@@ -407,33 +429,46 @@
    * FORCE DIRECTED TAGS GRAPH
    */
 
+  function changeMaxTagNodes(e: Event): void {
+    state.maxTagNodes = e.target?.value
+  }
+
   function setTagGraph(showGraph: boolean): void {
     state.tagsGraphInited = true
     state.tagsGraphVisible = showGraph
   }
 
   const getTagsGraphData = (): Graph => {
-    const tagNodes: Node[] = []
+    let tagNodes: Node[] = []
     questions.forEach(question => {
       question.tags.forEach(tag => {
-        if (!tagNodes.find(t => t.id === tag)) {
-          if (tag === PREFECT) {
-            // if (tag === query.primary_tag || !query.primary_tag && tag === PREFECT) {
-            // Put primary tag at index 0 so we can force-center it
-            tagNodes.unshift({ id: tag })
-          } else {
-            tagNodes.push({ id: tag })
-          }
+        const existingTag = tagNodes.find(t => t.id === tag)
+        if (!existingTag) {
+          tagNodes.push({ id: tag, weight: 1 })
+        } else {
+          existingTag.weight++
         }
       })
     })
+
+    tagNodes = tagNodes.sort((a, b) => {
+      // sort by weight
+      if (a.weight > b.weight) {
+        return -1
+      } else if (a.weight < b.weight) {
+        return 1
+      }
+      return 0
+    }).slice(0, state.maxTagNodes - 1)
 
     let maxWeight = 0
     const tagLinks: Link[] = []
     questions.forEach(question => {
       question.tags.forEach(tag1 => {
         question.tags.forEach(tag2 => {
-          if (tag1 !== tag2) {
+          if (tag1 !== tag2 &&
+            tagNodes.find(tag => tag.id === tag1) &&
+            tagNodes.find(tag => tag.id === tag2)) {
             const existingLink = tagLinks.find(
               // link direction is arbitrary so we need to test both directions
               link => link.source === tag1 && link.target === tag2 ||
@@ -552,7 +587,6 @@
   }
 
   // Adds or removes a tag from currentRoute's 'tags' query params
-  // TODO: Alphabetize tags param to optimize caching?
   function toggleTag(tag: string): void {
     const [qTags, query] = getTagsAndTaglessQuery()
     if (qTags.includes(tag)) {
@@ -759,6 +793,16 @@ header {
   h4 {
     display: inline-block;
     margin: 0 10px 5px 2px;
+    select {
+      padding: 3px;
+      font-size: 14px;
+      border: 1px solid #cccccc;
+      border-radius: 4px;
+      &:focus, &:focus-visible {
+        border: 1px solid #0d70a9;
+        outline: none;
+      }
+    }
   }
   label {
     color: #878787;
@@ -780,14 +824,14 @@ header {
       font-size: 14px;
     }
     input {
-      border: 1px solid #cccccc;
       padding: 3px 5px;
-      border-radius: 4px;
       font-family: inherit;
+      border: 1px solid #cccccc;
+      border-radius: 4px;
       height: 19px;
       &:focus-visible, &:focus {
-        outline: none;
         border: 1px solid #0d70a9;
+        outline: none;
       }
     }
   }
