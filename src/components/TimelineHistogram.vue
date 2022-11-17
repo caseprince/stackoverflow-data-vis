@@ -4,7 +4,9 @@
       <div class="content" />
       <div class="arrow" />
     </div>
-    <svg width="100%" height="25px"><g /></svg>
+    <div class="svg-wrapper">
+      <svg width="100%" height="25px"><g /></svg>
+    </div>
   </div>
 </template>
 
@@ -150,6 +152,11 @@
 <style lang="scss">
 div.timeline-histogram {
   position: relative;
+  .svg-wrapper {
+    // The SVG itself needs overflow: visible because the timeline is below to the bottom-aligned origin.
+    // This wrapper is necessary to crop horizontal overflow of tick labels.
+    overflow: hidden;
+  }
   svg {
     margin: 0 0 20px 0;
     overflow: visible;

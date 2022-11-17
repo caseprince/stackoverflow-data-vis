@@ -12,6 +12,7 @@
             </template>
           </menu>
         </span> tag
+        <!-- TODO: Load top tags from S.O., enable custom primary tag -->
       </h3>
       <span class="questions-count">
         <FontAwesomeIcon v-if="state.loading && state.hasMore" :icon="['fas', 'spinner']" spin size="1x" color="#cccccc" />
@@ -238,6 +239,7 @@
 
   onMounted(async () => {
     await loadQuestions()
+    window.addEventListener('resize', setTagsCanExpand)
     window.addEventListener('scroll', onScroll)
   })
 
@@ -246,15 +248,20 @@
     await loadQuestions(to.query)
   })
 
-  const COLLAPSED_TAGS_HEIGHT = 85
-  const filterTags = ref<HTMLElement | undefined>()
   onUpdated(() => {
-    state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
+    setTagsCanExpand()
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('resize', setTagsCanExpand)
     window.removeEventListener('scroll', onScroll)
   })
+
+  const COLLAPSED_TAGS_HEIGHT = 85
+  const filterTags = ref<HTMLElement | undefined>()
+  const setTagsCanExpand = (): void => {
+    state.tagsCanExpand = !!filterTags.value && filterTags.value.clientHeight > COLLAPSED_TAGS_HEIGHT
+  }
 
   const onScroll = (): void => {
     if (window.innerHeight + Math.ceil(window.pageYOffset) >= document.body.offsetHeight) {

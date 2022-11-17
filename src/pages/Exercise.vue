@@ -44,6 +44,8 @@
 
 <style lang="scss">
 .exercise__results {
+  max-width: 1600px;
+  margin: 0 auto;
   background-color: white;
   border-radius: 4px;
   box-shadow: 0 3px 3px -2px rgba(0, 0, 0, 0.2), 0 3px 4px 0 rgba(0, 0, 0, 0.14),
