@@ -319,10 +319,14 @@
     if (cachedURL) {
       const cache = JSON.parse(cachedURL)
       const cacheAgeInSeconds = Math.floor((new Date().getTime() - cache.time) / 1000)
-      // Aggressive caching for local development
-      if (cacheAgeInSeconds < 60 * 60 * 12) {
+      // 1hr cache - TODO: TTL for different endpoints?
+      if (cacheAgeInSeconds < 60 * 60) {
         console.log(`Using cached data! (${moment.duration(cacheAgeInSeconds, 'seconds').humanize()} old) ${url}`)
         data = cache.data
+      } else {
+        // To ensure pagination integrity we should nuke the cache when any given page is invalidated
+        console.log('Clearing sessionStorage...')
+        sessionStorage.clear()
       }
     }
     if (!data) {
@@ -548,7 +552,6 @@
   const searchTagsInput = ref<InputHTMLAttributes | undefined>()
 
   async function changeSearchTagsInput(event: Event): Promise<void> {
-    // TODO: Debounce?
     const searchTerm = (event.target as HTMLInputElement).value
     if (!searchTerm) {
       searchTags.results.splice(0, questions.length)
@@ -577,6 +580,7 @@
     query.tags = qTags.join(';')
     router.push({ path: router.currentRoute.value.path, query })
   }
+
   const clearSearchTags = (): void => {
     if (searchTagsInput.value) {
       searchTagsInput.value.value = ''
