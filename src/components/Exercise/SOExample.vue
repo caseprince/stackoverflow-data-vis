@@ -156,10 +156,10 @@
           </td>
           <td>{{ question.score }}</td>
           <td class="time">
-            {{ moment(question.creation_date * 1000).fromNow() }}
+            {{ formatDate(question.creation_date) }}
           </td>
           <td class="time">
-            {{ moment(question.last_activity_date * 1000).fromNow() }}
+            {{ formatDate(question.last_activity_date) }}
           </td>
         </tr>
       </template>
@@ -638,6 +638,19 @@
   /*
    * QUESTIONS TABLE
    */
+
+  const durationInDays = (startSeconds: number): number => {
+    const nowSeconds = new Date().getTime() / 1000
+    return (nowSeconds - startSeconds) / 60 / 60 / 24
+  }
+
+  function formatDate(seconds: number): string {
+    if (durationInDays(seconds) < 1) {
+      return moment(seconds * 1000).fromNow()
+    }
+    return moment(seconds * 1000).format('ll')
+
+  }
 
   function onClickTableRow(link: string): void {
     // This would useful for future analytics, but something involving <a>s would likely be better UX, since
