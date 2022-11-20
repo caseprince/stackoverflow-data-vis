@@ -183,7 +183,6 @@
               return linkedById[`${a.id},${b.id}`] || linkedById[`${b.id},${a.id}`] || a.id == b.id
             }
 
-
             const mouseOver = (_e: Event, d: any): void => {
               node.sort((a, _b) => {
                 if (a.id !== d.id && !isConnected(a, d)) {

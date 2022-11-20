@@ -113,7 +113,7 @@
               // Nudge left-most and right-most tooltips towards center to prevent tooltips overflowing container
               .style('transform', ttContentTransform)
             tooltip
-              .style('opacity', 0.9)
+              .style('opacity', 1)
               .style(
                 'left',
                 `${

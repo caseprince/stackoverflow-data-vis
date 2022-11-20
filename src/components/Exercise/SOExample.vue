@@ -25,11 +25,14 @@
     <div class="filters">
       <div class="filters-row">
         <div class="tabs">
-          <div class="tab" :class="!state.tagsGraphVisible && 'active'" @click="setTagGraph(false)">
+          <div class="tab" :class="state.activeTab === 'tag-list' && 'active'" @click="setActiveTab('tag-list')">
             <FontAwesomeIcon :icon="['fas', 'bars']" />Tag List
           </div>
-          <div class="tab" :class="state.tagsGraphVisible && 'active'" @click="setTagGraph(true)">
+          <div class="tab" :class="state.activeTab === 'tag-graph' && 'active'" @click="setActiveTab('tag-graph'); state.tagsGraphInited = true;">
             <FontAwesomeIcon :icon="['fas', 'circle-nodes']" />Tag Relationship Graph
+          </div>
+          <div class="tab" :class="state.activeTab === 'user-bubbles' && 'active'" @click="setActiveTab('user-bubbles')">
+            <FontAwesomeIcon :icon="['fas', 'user-astronaut']" />Users Bubble Chart
           </div>
         </div>
         <div class="date-filters">
@@ -61,10 +64,10 @@
       </div>
 
       <div class="tag-filters-header">
-        <h4 v-if="!state.tagsGraphVisible">
+        <h4 v-if="state.activeTab !== 'tag-graph'">
           Filter by {{ tags.length }} additional tags:
         </h4>
-        <h4 v-if="state.tagsGraphVisible">
+        <h4 v-if="state.activeTab === 'tag-graph'">
           Showing <span v-if="tags.length + 1 > 50">top </span>
           <span v-if="tags.length + 1 <= 50">{{ tags.length + 1 }}</span>
           <select v-if="tags.length + 1 > 50" :value="state.maxTagNodes" @change="changeMaxTagNodes">
@@ -93,7 +96,7 @@
         </div>
       </div>
 
-      <div v-if="!state.tagsGraphVisible">
+      <div v-if="state.activeTab !== 'tag-graph'">
         <div class="filter-tags-wrapper" :class="!state.tagsExpanded && 'collapsed'">
           <div ref="filterTags" class="tags">
             <template v-for="tag in tags" :key="tag.name">
@@ -112,11 +115,26 @@
 
       <ForceDirectedGraph
         v-if="state.tagsGraphInited"
-        :visible="state.tagsGraphVisible"
+        :visible="state.activeTab === 'tag-graph'"
         :data="getTagsGraphData()"
         :primary-node-id="getActivePrimaryTag()"
         :active-node-ids="getActiveTags()"
         :click-node="clickGraphNode"
+      />
+    </div>
+
+    <div v-if="state.activeTab === 'user-bubbles'">
+      <div class="tag-filters-header">
+        <h4 v-if="true">
+          Showing <span v-if="getBubbleChartData().length > MAX_USER_BUBBLES">top {{ MAX_USER_BUBBLES }}</span>
+          <span v-if="getBubbleChartData().length <= MAX_USER_BUBBLES">{{ getBubbleChartData().length }}</span>
+          of {{ getBubbleChartData().length }} Users:
+        </h4>
+      </div>
+      <BubbleChart
+        v-if="questions.length >= 1"
+        :data="getBubbleChartData().slice(0, MAX_USER_BUBBLES) "
+        :click-node="clickBubble"
       />
     </div>
 
@@ -178,6 +196,7 @@
   import moment from 'moment'
   import { InputHTMLAttributes, onBeforeUnmount, onMounted, onUpdated, reactive, ref } from 'vue'
   import { LocationQuery, onBeforeRouteUpdate } from 'vue-router'
+  import BubbleChart, { Bubble } from '@/components/BubbleChart.vue'
   import ForceDirectedGraph, { Graph, Link, Node } from '@/components/ForceDirectedGraph.vue'
   import TimelineHistogram, { HistogramDatum } from '@/components/TimelineHistogram.vue'
   import router from '@/router'
@@ -216,6 +235,8 @@
     active?: boolean,
   }
 
+  type Tab = 'tag-list' | 'tag-graph' | 'user-bubbles'
+
   const questions: Question[] = reactive([])
   const tags: Tag[] = reactive([])
 
@@ -223,6 +244,7 @@
     loading: true,
     hasMore: false,
     primaryTagDropdownOpen: false,
+    activeTab: 'tag-list' as Tab,
     tagsCanExpand: false,
     tagsExpanded: false,
     // The force-directed Tags graph is initialized only once, when first displayed. After initialization its visibility
@@ -231,7 +253,6 @@
     // is hidden; node.getBBox() returns 0 when `svg { display: none }`, which breaks layout & collision detection for added nodes.
     // https://stackoverflow.com/questions/28282295/getbbox-of-svg-when-hidden
     tagsGraphInited: false,
-    tagsGraphVisible: false,
     maxTagNodes: 50,
   })
   let page = 1
@@ -443,9 +464,8 @@
     state.maxTagNodes = e.target?.value
   }
 
-  function setTagGraph(showGraph: boolean): void {
-    state.tagsGraphInited = true
-    state.tagsGraphVisible = showGraph
+  function setActiveTab(tab: Tab): void {
+    state.activeTab = tab
   }
 
   const getTagsGraphData = (): Graph => {
@@ -659,6 +679,43 @@
     const win: Window = window
     win.location = link
   }
+
+  /*
+  * BUBBLE CHART
+  */
+
+  const MAX_USER_BUBBLES = 250
+  const getBubbleChartData = (): Bubble[] => {
+    const bubbles: Bubble[] = []
+    questions.forEach(question => {
+      const existingBubble = bubbles.find(bubble => bubble.id === question.owner.user_id)
+      if (!existingBubble && question.owner.user_id) {
+        bubbles.push({
+          id: question.owner.user_id,
+          img: question.owner.profile_image,
+          weight: question.owner.reputation,
+          tooltip: `${question.owner.display_name}<br>Reputation: ${question.owner.reputation}`,
+        })
+      }
+    })
+    return bubbles.sort((a, b) => {
+      // sort by weight
+      if (a.weight > b.weight) {
+        return -1
+      } else if (a.weight < b.weight) {
+        return 1
+      }
+      return 0
+    })
+  }
+
+  function clickBubble(id: number): void {
+    // Find first question by user and scroll to it.
+    const firstQuestionByUser = questions.find(question => question.owner.user_id === id)
+    const el = document.getElementById(String(firstQuestionByUser?.question_id))
+    el?.classList.add('flash')
+    el?.scrollIntoView()
+  }
 </script>
 
 <style lang="scss">
@@ -814,131 +871,133 @@ header {
     margin-bottom: 10px;
     border-bottom: 1px solid #cccccc;
   }
-  h4 {
-    display: inline-block;
-    margin: 0 10px 5px 2px;
-    select {
-      padding: 3px;
-      font-size: 14px;
-      border: 1px solid #cccccc;
-      border-radius: 4px;
-      &:focus, &:focus-visible {
-        border: 1px solid #0d70a9;
-        outline: none;
-      }
-    }
-  }
+
   label {
     color: #878787;
   }
-  .tag-filters-header {
-    flex: 1 1 1px;
-    margin-bottom: 7px;
-    padding-left: 9px;
-  }
-  .date-filters {
-    display: flex;
-    align-items: center;
-    margin: 0 10px 10px 2px;
-    h4 {
-      margin: 0 10px 0 0;
-    }
-    > label {
-      margin: 0 5px 0 15px;
-      font-size: 14px;
-    }
-    input {
-      padding: 3px 5px;
-      font-family: inherit;
-      border: 1px solid #cccccc;
-      border-radius: 4px;
-      height: 19px;
-      &:focus-visible, &:focus {
-        border: 1px solid #0d70a9;
-        outline: none;
-      }
-    }
-  }
-  .search-tags {
-    display: inline-block;
-    position: relative;
+}
+h4 {
+  display: inline-block;
+  margin: 0 10px 5px 2px;
+  select {
+    padding: 3px;
+    font-size: 14px;
     border: 1px solid #cccccc;
-    padding: 3px 22px 3px 3px;
     border-radius: 4px;
-    position: relative;
-    &:has(> input:focus) {
+    &:focus, &:focus-visible {
       border: 1px solid #0d70a9;
-    }
-    input {
-      all: unset;
-      display: revert;
-      border: none;
-      width: 120px;
-      font-size: 14px;
-    }
-    svg {
-      position: absolute;
-      right: 5px;
-      top: 6px;
-    }
-    menu {
-      position: absolute;
-      z-index: 9;
-      top: 25px;
-      left: 0;
-      margin: 0;
-      padding: 4px;
-      list-style-type: none;
-      border-radius: 4px;
-      background-color: white;
-      border: 1px solid #cccccc;
-      box-shadow: 0px 1px 4px rgb(0 0 0 / 30%);
-      li {
-        font-size: 12px;
-        cursor: pointer;
-        color: #39739d;
-        background-color: #e1ecf4;
-        &:not(:last-child) {
-          margin-bottom: 4px;
-        }
-        &:hover, &.keyboard-selected {
-          color: #106098;
-          background-color: #c5dbec;
-        }
-      }
+      outline: none;
     }
   }
-  .filter-tags-wrapper.collapsed {
-    max-height: 80px;
-    overflow: hidden;
+}
+.tag-filters-header {
+  flex: 1 1 1px;
+  margin-bottom: 7px;
+  padding-left: 9px;
+}
+.date-filters {
+  display: flex;
+  align-items: center;
+  margin: 0 10px 10px 2px;
+  h4 {
+    margin: 0 10px 0 0;
   }
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 2px 2px 8px;
-    .tag {
-      font-size: 12px;
+  > label {
+    margin: 0 5px 0 15px;
+    font-size: 14px;
+  }
+  input {
+    padding: 3px 5px;
+    font-family: inherit;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    height: 19px;
+    &:focus-visible, &:focus {
+      border: 1px solid #0d70a9;
+      outline: none;
     }
   }
-  hr {
+}
+.search-tags {
+  display: inline-block;
+  position: relative;
+  border: 1px solid #cccccc;
+  padding: 3px 22px 3px 3px;
+  border-radius: 4px;
+  position: relative;
+  &:has(> input:focus) {
+    border: 1px solid #0d70a9;
+  }
+  input {
+    all: unset;
+    display: revert;
+    border: none;
+    width: 120px;
+    font-size: 14px;
+  }
+  svg {
+    position: absolute;
+    right: 5px;
+    top: 6px;
+  }
+  menu {
+    position: absolute;
+    z-index: 9;
+    top: 25px;
+    left: 0;
     margin: 0;
-    border-top: 1px solid #c4c4c4;
-  }
-  .more-or-less {
-    text-align: center;
-    > span {
-      margin: 3px 0 -13px 0;
+    padding: 4px;
+    list-style-type: none;
+    border-radius: 4px;
+    background-color: white;
+    border: 1px solid #cccccc;
+    box-shadow: 0px 1px 4px rgb(0 0 0 / 30%);
+    li {
+      font-size: 12px;
       cursor: pointer;
-      font-size: 13px;
-      color: #cccccc;
-      padding: 8px 10px;
-      &:hover {
-        color: #8f8f8f
+      color: #39739d;
+      background-color: #e1ecf4;
+      &:not(:last-child) {
+        margin-bottom: 4px;
+      }
+      &:hover, &.keyboard-selected {
+        color: #106098;
+        background-color: #c5dbec;
       }
     }
   }
 }
+.filter-tags-wrapper.collapsed {
+  max-height: 80px;
+  overflow: hidden;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 2px 8px;
+  .tag {
+    font-size: 12px;
+  }
+}
+hr {
+  margin: 0;
+  border-top: 1px solid #c4c4c4;
+}
+.more-or-less {
+  text-align: center;
+  > span {
+    margin: 3px 0 -13px 0;
+    cursor: pointer;
+    font-size: 13px;
+    color: #cccccc;
+    padding: 8px 10px;
+    &:hover {
+      color: #8f8f8f
+    }
+  }
+}
+
 
 .tabs {
   display: flex;
