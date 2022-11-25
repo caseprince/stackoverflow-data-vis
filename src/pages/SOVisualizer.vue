@@ -245,7 +245,7 @@
     loading: true,
     hasMore: false,
     primaryTagDropdownOpen: false,
-    activeTab: router.currentRoute.value.path.split('/')[1] as Tab,
+    activeTab: (router.currentRoute.value.query.tab ?? 'tag-list') as Tab,
     tagsCanExpand: false,
     tagsExpanded: false,
     // The force-directed Tags graph is initialized only once, when first displayed. After initialization its visibility
@@ -267,18 +267,19 @@
     await loadQuestions()
     window.addEventListener('resize', setTagsCanExpand)
     window.addEventListener('scroll', onScroll)
-
   })
 
   onBeforeRouteUpdate(async to => {
-    if (JSON.stringify(to.query) !== JSON.stringify(router.currentRoute.value.query)) {
-      // Currently any change top query params resets pagination, so this can be centralized here
+    const { tab: _tab, ...tablessFrom }= router.currentRoute.value.query
+    const { tab: tabTo, ...tablessTo }= to.query
+    if (JSON.stringify(tablessFrom) !== JSON.stringify(tablessTo)) {
+      // Currently any change top query params resets pagination, excepting 'tab'
       page = 1
       await loadQuestions(to.query)
     }
-    if (['tag-list', 'tag-graph', 'user-bubbles'].includes(to.path.split('/')[1])) {
-      // Keeping this as state in addition to route for now
-      state.activeTab = to.path.split('/')[1] as Tab
+    if (['tag-list', 'tag-graph', 'user-bubbles'].includes(tabTo as string)) {
+      // Keeping this as state in addition to query param for now
+      state.activeTab = tabTo as Tab
     }
   })
 
@@ -477,7 +478,7 @@
 
   function setActiveTab(tab: Tab): void {
     // state.activeTab = tab
-    router.push({ path: tab, query: router.currentRoute.value.query })
+    updateOrRemoveQueryParam('tab', tab)
   }
 
   const getTagsGraphData = (): Graph => {
