@@ -25,7 +25,7 @@
     <div class="filters">
       <div class="filters-row">
         <div class="tabs">
-          <div class="tab" :class="state.activeTab === 'tag-list' && 'active'" @click="setActiveTab('tag-list')">
+          <div class="tab" :class="state.activeTab === 'tag-list' && 'active'" @click="setActiveTab('tag-list');">
             <FontAwesomeIcon :icon="['fas', 'bars']" />Tag List
           </div>
           <div class="tab" :class="state.activeTab === 'tag-graph' && 'active'" @click="setActiveTab('tag-graph'); state.tagsGraphInited = true;">
@@ -245,7 +245,7 @@
     loading: true,
     hasMore: false,
     primaryTagDropdownOpen: false,
-    activeTab: 'tag-list' as Tab,
+    activeTab: router.currentRoute.value.path.split('/')[1] as Tab,
     tagsCanExpand: false,
     tagsExpanded: false,
     // The force-directed Tags graph is initialized only once, when first displayed. After initialization its visibility
@@ -267,11 +267,19 @@
     await loadQuestions()
     window.addEventListener('resize', setTagsCanExpand)
     window.addEventListener('scroll', onScroll)
+
   })
 
   onBeforeRouteUpdate(async to => {
-    page = 1
-    await loadQuestions(to.query)
+    if (JSON.stringify(to.query) !== JSON.stringify(router.currentRoute.value.query)) {
+      // Currently any change top query params resets pagination, so this can be centralized here
+      page = 1
+      await loadQuestions(to.query)
+    }
+    if (['tag-list', 'tag-graph', 'user-bubbles'].includes(to.path.split('/')[1])) {
+      // Keeping this as state in addition to route for now
+      state.activeTab = to.path.split('/')[1] as Tab
+    }
   })
 
   onUpdated(() => {
@@ -468,7 +476,8 @@
   }
 
   function setActiveTab(tab: Tab): void {
-    state.activeTab = tab
+    // state.activeTab = tab
+    router.push({ path: tab, query: router.currentRoute.value.query })
   }
 
   const getTagsGraphData = (): Graph => {
@@ -729,8 +738,6 @@
 
 .so-visualizer {
   padding: 24px 12px;
-  max-width: 1600px;
-  margin: 0 auto;
   background-color: white;
   border-radius: 4px;
   box-shadow: 0 3px 3px -2px rgba(0, 0, 0, 0.2), 0 3px 4px 0 rgba(0, 0, 0, 0.14),
