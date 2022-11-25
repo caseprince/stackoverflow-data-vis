@@ -16,7 +16,7 @@
 
   export type Node = { id: string, weight: number, width?: number }
   export type Link = { source: string, target: string, weight: number }
-  export type Graph = { nodes: Node[], links: Link[], maxWeight: number }
+  export type Graph = { nodes: Node[], links: Link[], maxWeight: number, minWeight: number }
 
   let graph: any
   let simulation: d3.Simulation<d3.SimulationNodeDatum, undefined>
@@ -138,7 +138,7 @@
 
         simulation = d3
           .forceSimulation()
-          .force('charge', d3.forceManyBody().strength(-600))
+          .force('charge', d3.forceManyBody().strength(-400))
           .force(
             'link',
             d3
@@ -160,7 +160,7 @@
         // https://observablehq.com/@tgjt/modifying-a-force-directed-graph
         graph = Object.assign(svg.node(), {
           update: () => {
-            let { nodes, links, maxWeight } = this.data
+            let { nodes, links, maxWeight, minWeight } = this.data
 
             // Make a shallow copy to protect against mutation, while
             // recycling old nodes to preserve position and velocity.
@@ -252,8 +252,8 @@
             link = link
               .data(links, (d) => `${d.source.id}\t${d.target.id}`)
               .join('line')
-              .attr('opacity', (d) => 0.4 + d.weight / maxWeight * 0.4)
-              .attr('stroke-width', (d) => 2 + d.weight / maxWeight * 10)
+              .attr('opacity', (d) => 0.4 + (d.weight - minWeight) / maxWeight * 0.4)
+              .attr('stroke-width', (d) => 2 + (d.weight - minWeight) / maxWeight * 10)
 
           },
         })

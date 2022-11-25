@@ -237,6 +237,7 @@
 
   type Tab = 'tag-list' | 'tag-graph' | 'user-bubbles'
 
+  const API_BASE = 'https://api.stackexchange.com/2.3/'
   const questions: Question[] = reactive([])
   const tags: Tag[] = reactive([])
 
@@ -259,6 +260,10 @@
   const PAGESIZE = 100
 
   onMounted(async () => {
+    const topTagsData = await fetchDataWithCache(`${API_BASE}tags?pagesize=10&order=desc&sort=popular&site=stackoverflow`)
+    if (topTagsData.items) {
+      primaryTags = topTagsData.items.map(item => item.name)
+    }
     await loadQuestions()
     window.addEventListener('resize', setTagsCanExpand)
     window.addEventListener('scroll', onScroll)
@@ -296,10 +301,10 @@
   * PRIMARY TAG DROPDOWN
   */
 
-  const PREFECT = 'prefect'
-  const primaryTags: string[] = [PREFECT, 'javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
+  // Overridden by API call to /tags
+  let primaryTags: string[] = ['javascript', 'python', 'java', 'c#', 'php', 'android', 'html']
   function getActivePrimaryTag(): string {
-    return (router.currentRoute.value.query.primary_tag || PREFECT) as string
+    return (router.currentRoute.value.query.primary_tag || primaryTags[0]) as string
   }
   function getPrimaryTagMenuItems(): string[] {
     return primaryTags.filter(tag => tag !== getActivePrimaryTag())
@@ -313,13 +318,11 @@
       window.removeEventListener('click', togglePrimaryTagDropdown)
     }
   }
-  // Changes or removes primary tag query param and resets 2ndary tags
+  // Changes primary tag query param and resets 2ndary tags
   function changePrimaryTag(primaryTag: string): void {
     const [_qTags, oldQuery] = getTagsAndTaglessQuery()
     const { primary_tag: _primary_tag, ...query } = oldQuery
-    if (primaryTag !== PREFECT) {
-      query.primary_tag = primaryTag
-    }
+    query.primary_tag = primaryTag
     router.push({ path: router.currentRoute.value.path, query })
   }
 
@@ -377,7 +380,7 @@
     state.loading = true
 
     const activeTags = query.tags ? (query.tags as string).split(';') : []
-    activeTags.unshift(query.primary_tag as string || PREFECT)
+    activeTags.unshift(query.primary_tag as string || primaryTags[0])
 
     const apiParams: any = {
       page: String(page),
@@ -405,7 +408,7 @@
     }
 
     const URLParams = new URLSearchParams(apiParams).toString()
-    const url = `https://api.stackexchange.com/2.3/questions?${URLParams}`
+    const url = `${API_BASE}questions?${URLParams}`
     const data = await fetchDataWithCache(url)
     state.loading = false
     state.hasMore = data.has_more
@@ -424,8 +427,8 @@
         const existingTag = tags.find(tag => tag.name === questionTag)
         if (existingTag) {
           existingTag.questionIds.push(question.question_id)
-        // Exclude query.primaryTag or implied 'prefect' primaryTag
-        } else if (questionTag !== (query.primary_tag ? query.primary_tag : PREFECT)) {
+        // Exclude query.primaryTag or implied zeroth tag from 'top tags' query
+        } else if (questionTag !== (query.primary_tag ? query.primary_tag : primaryTags[0])) {
           tags.push({ name: questionTag, questionIds: [question.question_id] })
         }
       })
@@ -493,6 +496,7 @@
     }).slice(0, state.maxTagNodes - 1)
 
     let maxWeight = 0
+    let minWeight = 1000000
     const tagLinks: Link[] = []
     questions.forEach(question => {
       question.tags.forEach(tag1 => {
@@ -508,6 +512,7 @@
             if (existingLink) {
               existingLink.weight++
               maxWeight = Math.max(maxWeight, existingLink.weight)
+              minWeight = Math.min(minWeight, existingLink.weight)
             } else {
               tagLinks.push({
                 source: tag1,
@@ -523,19 +528,20 @@
       nodes: tagNodes,
       links: tagLinks,
       maxWeight,
+      minWeight,
     }
   }
 
   function clickGraphNode(id: string): void {
     const { query } = router.currentRoute.value
-    if (query.primary_tag && id !== query.primary_tag || !query.primary_tag && id !== PREFECT) {
+    if (query.primary_tag && id !== query.primary_tag || !query.primary_tag && id !== primaryTags[0]) {
       toggleTag(id)
     }
   }
 
   const getActiveTags = (): string[] => {
     const [qTags] = getTagsAndTaglessQuery(router.currentRoute.value.query)
-    qTags.push(router.currentRoute.value.query.primary_tag as string || PREFECT)
+    qTags.push(router.currentRoute.value.query.primary_tag as string || primaryTags[0])
     return qTags
   }
 
@@ -719,10 +725,16 @@
 </script>
 
 <style lang="scss">
-@import "../../scss/_mixins";
+@import "../scss/_mixins";
 
 .so-visualizer {
   padding: 24px 12px;
+  max-width: 1600px;
+  margin: 0 auto;
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 3px 3px -2px rgba(0, 0, 0, 0.2), 0 3px 4px 0 rgba(0, 0, 0, 0.14),
+    0 1px 8px 0 rgba(0, 0, 0, 0.12) !important;
 }
 
 header {

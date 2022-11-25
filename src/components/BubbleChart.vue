@@ -202,7 +202,6 @@
                   .attr('y', (d) => -d.radius!)
                   .attr('clip-path', (d) => `url(#clipObj${d.id})`)
                   .on('mouseover', (_event, d) => {
-                    console.log('tooltip')
                     tooltip
                       .select('.content')
                       .html(d.tooltip)
