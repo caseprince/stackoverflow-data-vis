@@ -37,9 +37,9 @@
     }
   }
 
-  const graphsEqual = (oldGraph: Graph, newGraph: Graph): boolean => {
+  const graphsEqual = (oldGraph: Bubble[], newGraph: Bubble[]): boolean => {
     // Cheaper than lodash isEquals()?
-    const stringify = (graph: Graph): string => graph.map(g => g.id).join(';')
+    const stringify = (graph: Bubble[]): string => graph.map(g => g.id).join(';')
     return stringify(oldGraph) === stringify(newGraph)
   }
 

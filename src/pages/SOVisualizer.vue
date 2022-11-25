@@ -262,7 +262,7 @@
   onMounted(async () => {
     const topTagsData = await fetchDataWithCache(`${API_BASE}tags?pagesize=10&order=desc&sort=popular&site=stackoverflow`)
     if (topTagsData.items) {
-      primaryTags = topTagsData.items.map(item => item.name)
+      primaryTags = topTagsData.items.map((item: { name: string }) => item.name)
     }
     await loadQuestions()
     window.addEventListener('resize', setTagsCanExpand)
@@ -464,7 +464,7 @@
    */
 
   function changeMaxTagNodes(e: Event): void {
-    state.maxTagNodes = e.target?.value
+    state.maxTagNodes = +(e.target as HTMLSelectElement).value
   }
 
   function setActiveTab(tab: Tab): void {
