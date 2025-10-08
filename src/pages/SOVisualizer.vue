@@ -145,42 +145,46 @@
     />
 
     <table class="questions-table">
-      <tr>
-        <th>User</th>
-        <th>Rep</th>
-        <th>Title</th>
-        <th>Views</th>
-        <th>Answers</th>
-        <th>Votes</th>
-        <th>Asked</th>
-        <th>Active</th>
-      </tr>
-      <template v-for="question in questions" :key="question.question_id">
-        <tr :id="question.question_id.toString()" @click="onClickTableRow(question.link)">
-          <td>
-            <div class="owner">
-              <img :src="question.owner.profile_image" referrerpolicy="no-referrer">
-              <div v-html="question.owner.display_name" />
-            </div>
-          </td>
-          <td>{{ question.owner.reputation }}</td>
-          <td class="title">
-            <div v-html="question.title" />
-          </td>
-          <td>{{ question.view_count }}</td>
-          <td class="answers">
-            {{ question.answer_count }}
-            <span v-if="question.accepted_answer_id"><FontAwesomeIcon :icon="['fas', 'circle-check']" color="#00be00" /></span>
-          </td>
-          <td>{{ question.score }}</td>
-          <td class="time">
-            {{ formatDate(question.creation_date) }}
-          </td>
-          <td class="time">
-            {{ formatDate(question.last_activity_date) }}
-          </td>
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Rep</th>
+          <th>Title</th>
+          <th>Views</th>
+          <th>Answers</th>
+          <th>Votes</th>
+          <th>Asked</th>
+          <th>Active</th>
         </tr>
-      </template>
+      </thead>
+      <tbody>
+        <template v-for="question in questions" :key="question.question_id">
+          <tr :id="question.question_id.toString()" @click="onClickTableRow(question.link)">
+            <td>
+              <div class="owner">
+                <img :src="question.owner.profile_image" referrerpolicy="no-referrer">
+                <div v-html="question.owner.display_name" />
+              </div>
+            </td>
+            <td>{{ question.owner.reputation }}</td>
+            <td class="title">
+              <div v-html="question.title" />
+            </td>
+            <td>{{ question.view_count }}</td>
+            <td class="answers">
+              {{ question.answer_count }}
+              <span v-if="question.accepted_answer_id"><FontAwesomeIcon :icon="['fas', 'circle-check']" color="#00be00" /></span>
+            </td>
+            <td>{{ question.score }}</td>
+            <td class="time">
+              {{ formatDate(question.creation_date) }}
+            </td>
+            <td class="time">
+              {{ formatDate(question.last_activity_date) }}
+            </td>
+          </tr>
+        </template>
+      </tbody>
     </table>
     <div v-if="state.loading" class="spinner-holder">
       <FontAwesomeIcon :icon="['fas', 'spinner']" spin size="2x" color="#cccccc" />
